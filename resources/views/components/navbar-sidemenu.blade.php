@@ -124,11 +124,11 @@
                                     </a>
                                 </li>
 
-                                {{-- <li class="nk-menu-item">
-                                    <a href="/truck/reports" class="nk-menu-link">
-                                        <span class="nk-menu-text">Trucks Report </span>
+                                <li class="nk-menu-item">
+                                    <a href="/admin/generate/reports" class="nk-menu-link">
+                                        <span class="nk-menu-text">Generate Reports </span>
                                     </a>
-                                </li> --}}
+                                </li>
 
                             </ul>
 

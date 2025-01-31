@@ -37,8 +37,14 @@
                             <select id="paymentType" class="form-select">
                                 <option value="cash">Cash</option>
                                 <option value="debit">Debit</option>
+                                <option value="online">Online Payment</option>
                             </select>
                         </div>
+                    </div>
+                    <div class="col-md-6" id="referenceNumberContainer" style="display: none;">
+                        <label class="form-label"><strong>Reference Number:</strong></label>
+                        <input type="text" class="form-control" id="reference-number"
+                            placeholder="Enter reference number">
                     </div>
 
                     <!-- Items Table -->
@@ -397,17 +403,26 @@
     document.addEventListener('DOMContentLoaded', function() {
         const paymentTypeSelect = document.getElementById('paymentType');
         const paymentSection = document.querySelector('.payment-section');
+        const referenceNumberContainer = document.getElementById('referenceNumberContainer');
 
         function togglePaymentFields() {
-            // If payment type is debit, hide the payment section
-            if (paymentTypeSelect.value === 'debit') {
+            const selectedValue = paymentTypeSelect.value;
+
+            // Handle payment section visibility
+            if (selectedValue === 'debit' || selectedValue === 'online') {
                 paymentSection.style.display = 'none';
-                // Reset the values when hidden
                 document.getElementById('amount-paid').value = '';
                 document.getElementById('change-amount').value = '';
             } else {
-                // Show the payment section for cash
                 paymentSection.style.display = 'block';
+            }
+
+            // Handle reference number field visibility
+            if (selectedValue === 'online') {
+                referenceNumberContainer.style.display = 'block';
+            } else {
+                referenceNumberContainer.style.display = 'none';
+                document.getElementById('reference-number').value = '';
             }
         }
 
@@ -461,6 +476,8 @@
                     customer_id: parseInt(customerId),
                     service_type: serviceType,
                     payment_type: paymentType,
+                    reference_number: paymentType === 'online' ? document.getElementById(
+                        'reference-number').value : null, // Add this line
                     items: items,
                     subtotal: Number(subtotal.toFixed(2)),
                     discount_percentage: Number(discountPercentage.toFixed(2)),
@@ -471,7 +488,6 @@
                     amount_paid: Number(amountPaid.toFixed(2)),
                     change_amount: Number(changeAmount.toFixed(2))
                 };
-
                 const response = await fetch('/save-transaction', {
                     method: 'POST',
                     headers: {
@@ -505,7 +521,12 @@
                 isSubmitting = true;
                 confirmButton.disabled = true;
 
-                // Only validate amount for cash payments
+                if (paymentType === 'online') {
+                    const referenceNumber = document.getElementById('reference-number').value;
+                    if (!referenceNumber.trim()) {
+                        throw new Error('Please enter a reference number for online payment.');
+                    }
+                }
                 if (paymentType === 'cash') {
                     const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
                     const totalAmount = parseFloat(document.querySelector(

@@ -10,14 +10,17 @@
                             </div><!-- .nk-block-head-content -->
 
                             <div class="nk-block-head-content">
-                                <form action="{{ route('expenses.report') }}" method="GET" class="d-flex align-items-center">
+                                <form action="{{ route('expenses.report') }}" method="GET"
+                                    class="d-flex align-items-center">
                                     <div class="me-2">
                                         <label for="date" class="form-label">Select Date</label>
-                                        <input type="date" name="date" id="date" class="form-control" value="{{ request()->get('date') }}">
+                                        <input type="date" name="date" id="date" class="form-control"
+                                            value="{{ request()->get('date') }}">
                                     </div>
                                     <div>
                                         <button type="submit" class="btn btn-primary mt-4">Filter</button>
-                                        <a href="{{ route('expenses.report') }}" class="btn btn-secondary mt-4 ms-2">Reset</a>
+                                        <a href="{{ route('expenses.report') }}"
+                                            class="btn btn-secondary mt-4 ms-2">Reset</a>
                                     </div>
                                 </form>
                             </div><!-- .nk-block-head-content -->
@@ -27,7 +30,8 @@
                     <div class="nk-block nk-block-lg">
                         <div class="card card-bordered card-preview">
                             <div class="card-inner">
-                                <table class="datatable-init-export nowrap table" data-export-title="Export" data-order="false">
+                                <table class="datatable-init-export nowrap table" data-export-title="Export"
+                                    data-order="false">
                                     <thead>
                                         <tr>
                                             <th>Withdraw By</th>

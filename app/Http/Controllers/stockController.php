@@ -124,4 +124,3 @@ class stockController extends Controller
         return view('clerk.pages.stocklist.index', compact('masterStocks'));
     }
 }
-

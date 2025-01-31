@@ -25,6 +25,7 @@ class TransactionModel extends Model
         'discount_percentage',
         'discount_amount',
         'status',
+        'reference_number',
         'created_at',
         'updated_at'
     ];

@@ -2,7 +2,7 @@
     <div class="nk-block nk-block-lg">
         <div class="nk-block-head">
             <div class="nk-block-head-content">
-                <h4 class="nk-block-title">Stocks History</h4>
+                <h4 class="nk-block-title">Stocks Historys</h4>
 
             </div>
         </div>
@@ -35,6 +35,3 @@
         </div><!-- .card -->
     </div>
 </x-app-layout>
-
-
-

@@ -9,6 +9,10 @@
     <link rel="stylesheet" href="/vendor/assets/css/dashlite.css?ver=3.0.3">
     <link id="skin-default" rel="stylesheet" href="/vendor/assets/css/theme.css?ver=3.0.3">
     <link rel="preconnect" href="https://fonts.bunny.net">
+    <!-- In your layout -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/css/bootstrap-datepicker.min.css"
+        rel="stylesheet">
+
     <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />
     <title>{{ config('app.name', 'Laravel') }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
@@ -126,6 +130,7 @@
             </div>
         </div>
     </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-datepicker/1.9.0/js/bootstrap-datepicker.min.js"></script>
     <script src="/vendor/assets/js/bundle.js?ver=3.0.3"></script>
     <script src="/vendor/assets/js/scripts.js?ver=3.0.3"></script>
     <script src="/vendor/assets/js/libs/datatable-btns.js?ver=3.0.3"></script>

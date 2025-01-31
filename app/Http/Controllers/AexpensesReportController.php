@@ -7,7 +7,8 @@ use Illuminate\Http\Request;
 class AexpensesReportController extends Controller
 {
 
-    public function index(Request $request) {
+    public function index(Request $request)
+    {
         $query = ExpenseModel::query();
 
         // Apply date filter if provided

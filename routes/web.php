@@ -34,6 +34,7 @@ use App\Http\Controllers\DiscountCodeController;
 use App\Http\Controllers\CondemnController;
 use App\Http\Controllers\StockLogController;
 use App\Http\Controllers\ExportController;
+use App\Http\Controllers\GenerateReportController;
 use Illuminate\Support\Facades\DB;
 Route::get('/', function () {
     return view('auth.login');
@@ -65,7 +66,12 @@ Route::middleware([
     Route::get('/admin/inventory/reports', [InventoryReportController::class, 'index']);
     Route::get('/admin/wholesale/reports', [AsaleReportController::class, 'index']);
     Route::get('/admin/denomination/reports', [DenominationReportController::class, 'index']);
-    Route::get('/admin/expenses/reports', [AexpensesReportController::class, 'index']);
+    Route::get('/admin/expenses/reports', [AexpensesReportController::class, 'index'])->name('reports.index');
+    Route::post('/reports', [GenerateReportController::class, 'store'])->name('reports.store');
+
+    Route::get('/admin/generate/reports', [GenerateReportController::class, 'index']);
+    Route::get('/reports/{date}/export', [GenerateReportController::class, 'export'])->name('reports.export');
+
     Route::get('/expenses-report', [AexpensesReportController::class, 'index'])->name('expenses.report');
     Route::get('/export/{type}', [ExportController::class, 'export'])->name('export');
     Route::get('/total-sales', [AdminController::class, 'getTotalSales']);

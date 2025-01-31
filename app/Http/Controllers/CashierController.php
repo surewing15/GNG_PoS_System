@@ -210,7 +210,8 @@ class CashierController extends Controller
                         'total_amount' => 'required|numeric|min:0',
                         'receipt_id' => 'required|string|unique:tbl_transactions,receipt_id',
                         'status' => 'nullable|string',
-                        'payment_type' => 'required|string|in:cash,debit'
+                        'payment_type' => 'required|string|in:cash,debit,online',
+                        'reference_number' => 'nullable|string|max:255'
                     ]);
 
                     break;
@@ -275,6 +276,7 @@ class CashierController extends Controller
                 'status' => $validated['service_type'] === 'deliver' ? 'Not Assigned' : null,
                 'payment_type' => $validated['payment_type'],
                 'date' => $now,
+                'reference_number' => $request->reference_number,
                 'updated_at' => $now,
                 'created_at' => $now
             ]);
