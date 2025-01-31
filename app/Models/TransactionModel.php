@@ -19,6 +19,7 @@ class TransactionModel extends Model
         'total_amount',
         'receipt_id',
         'date',
+        'user_id',
         'subtotal',
         'amount_paid',
         'change_amount',
@@ -66,6 +67,10 @@ class TransactionModel extends Model
             }
             \Log::info('Transaction creating:', $model->toArray());
         });
+    }
+    public function user()
+    {
+        return $this->belongsTo(User::class);
     }
 
 

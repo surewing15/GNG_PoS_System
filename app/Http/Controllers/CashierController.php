@@ -7,6 +7,7 @@ use App\Models\TransactionModel;
 use Illuminate\Http\Request;
 use App\Models\ProductModel;
 use App\Models\StockModel;
+use Illuminate\Support\Facades\Auth;
 use App\Models\CustomerModel;
 use Illuminate\Support\Facades\DB;
 
@@ -181,6 +182,12 @@ class CashierController extends Controller
     public function saveTransaction(Request $request)
     {
         try {
+            // Get the current user ID at the beginning
+            $userId = Auth::id();
+            if (!$userId) {
+                throw new \Exception('User not authenticated');
+            }
+
             \Log::info('Received transaction data:', $request->all());
 
             $maxAttempts = 3;
@@ -211,7 +218,9 @@ class CashierController extends Controller
                         'receipt_id' => 'required|string|unique:tbl_transactions,receipt_id',
                         'status' => 'nullable|string',
                         'payment_type' => 'required|string|in:cash,debit,online',
-                        'reference_number' => 'nullable|string|max:255'
+                        'reference_number' => 'nullable|string|max:255',
+                        'amount_paid' => 'required|numeric|min:0',
+                        'change_amount' => 'required|numeric|min:0'
                     ]);
 
                     break;
@@ -263,10 +272,13 @@ class CashierController extends Controller
                         'updated_at' => now()
                     ]);
             }
+
             $now = \Carbon\Carbon::now('Asia/Manila');
+
 
             $transaction = TransactionModel::create([
                 'CustomerID' => $validated['customer_id'],
+                'user_id' => $userId,
                 'service_type' => $validated['service_type'],
                 'subtotal' => $validated['subtotal'],
                 'discount_percentage' => $validated['discount_percentage'],
@@ -277,13 +289,17 @@ class CashierController extends Controller
                 'payment_type' => $validated['payment_type'],
                 'date' => $now,
                 'reference_number' => $request->reference_number,
+                'amount_paid' => $validated['amount_paid'],
+                'change_amount' => $validated['change_amount'],
                 'updated_at' => $now,
                 'created_at' => $now
             ]);
 
+            // Create transaction items with user_id
             foreach ($validated['items'] as $item) {
                 $transaction->items()->create([
                     'product_id' => $item['product_id'],
+                    'user_id' => $userId,
                     'kilos' => $item['kilos'],
                     'price_per_kilo' => $item['price_per_kilo'],
                     'total' => $item['total']

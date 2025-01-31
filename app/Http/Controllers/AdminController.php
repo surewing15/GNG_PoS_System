@@ -31,11 +31,11 @@ class AdminController extends Controller
             DB::raw('CASE WHEN tbl_transactions.total_amount = 0 THEN tbl_transactions.subtotal ELSE tbl_transactions.total_amount END as final_amount')
         )
             ->join('tbl_customers', 'tbl_transactions.CustomerID', '=', 'tbl_customers.CustomerID')
-            ->where('tbl_transactions.payment_type', 'cash')
+            ->whereIn('tbl_transactions.payment_type', ['cash', 'online'])
             ->distinct()
             ->get();
 
-    $debits = $this->getDebitTransactions();
+        $debits = $this->getDebitTransactions();
 
         $totalCustomerCount = CustomerModel::count('CustomerID');
         $lastWeekCustomerCount = TransactionModel::whereBetween('created_at', [
@@ -46,19 +46,19 @@ class AdminController extends Controller
         $percentageChange = $lastWeekCustomerCount ?
             (($totalCustomerCount - $lastWeekCustomerCount) / $lastWeekCustomerCount) * 100 : 0;
 
-            return view('dashboard', compact(
-                'totalSales',
-                'totalCashSales',
-                'totalExpenses',
-                'totalCash',
-                'salesData',
-                'expenses',
-                'totalCustomerCount',
-                'percentageChange',
-                'customers',
-                'weeklySales',
-                'debits' // Added missing debits
-            ));
+        return view('dashboard', compact(
+            'totalSales',
+            'totalCashSales',
+            'totalExpenses',
+            'totalCash',
+            'salesData',
+            'expenses',
+            'totalCustomerCount',
+            'percentageChange',
+            'customers',
+            'weeklySales',
+            'debits'
+        ));
     }
 
     public function getWeeklySalesData()
@@ -69,12 +69,14 @@ class AdminController extends Controller
                 return [
                     'name' => $date->format('D'),
                     'cash_sales' => $this->getSalesByType($date, 'cash'),
-                    'debit_sales' => $this->getSalesByType($date, 'debit')
+                    'debit_sales' => $this->getSalesByType($date, 'debit'),
+                    'online_sales' => $this->getSalesByType($date, 'online')
                 ];
             })
             ->reverse()
             ->values();
     }
+
 
     private function getSalesByType($date, $type)
     {
@@ -82,10 +84,9 @@ class AdminController extends Controller
             ->where('payment_type', $type)
             ->sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END'));
     }
-
     private function getTotalCashSales()
     {
-        return TransactionModel::where('payment_type', 'cash')
+        return TransactionModel::whereIn('payment_type', ['cash', 'online'])
             ->sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END'));
     }
 
@@ -96,30 +97,61 @@ class AdminController extends Controller
 
     private function getSalesDataArray()
     {
+        // Total sales (all payment types)
         $totalSales = TransactionModel::sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END'));
+
+        // Cash and online sales total
         $totalCashSales = $this->getTotalCashSales();
 
+        // Get last month's sales
         $lastMonth = Carbon::now()->subMonth();
         $lastMonthSales = TransactionModel::whereMonth('created_at', $lastMonth->month)
             ->whereYear('created_at', $lastMonth->year)
             ->sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END'));
 
+        // This week's sales by payment type
         $thisWeek = Carbon::now()->startOfWeek();
-        $thisWeekSales = TransactionModel::where('created_at', '>=', $thisWeek)
-            ->sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END'));
+        $thisWeekSales = [
+            'cash' => TransactionModel::where('created_at', '>=', $thisWeek)
+                ->where('payment_type', 'cash')
+                ->sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END')),
+            'online' => TransactionModel::where('created_at', '>=', $thisWeek)
+                ->where('payment_type', 'online')
+                ->sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END')),
+            'debit' => TransactionModel::where('created_at', '>=', $thisWeek)
+                ->where('payment_type', 'debit')
+                ->sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END'))
+        ];
 
+        // Last week's sales by payment type
         $lastWeekStart = Carbon::now()->subWeek()->startOfWeek();
         $lastWeekEnd = Carbon::now()->subWeek()->endOfWeek();
-        $lastWeekSales = TransactionModel::whereBetween('created_at', [$lastWeekStart, $lastWeekEnd])
-            ->sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END'));
+        $lastWeekSales = [
+            'cash' => TransactionModel::whereBetween('created_at', [$lastWeekStart, $lastWeekEnd])
+                ->where('payment_type', 'cash')
+                ->sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END')),
+            'online' => TransactionModel::whereBetween('created_at', [$lastWeekStart, $lastWeekEnd])
+                ->where('payment_type', 'online')
+                ->sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END')),
+            'debit' => TransactionModel::whereBetween('created_at', [$lastWeekStart, $lastWeekEnd])
+                ->where('payment_type', 'debit')
+                ->sum(DB::raw('CASE WHEN total_amount = 0 THEN subtotal ELSE total_amount END'))
+        ];
 
-        $percentageChange = $lastWeekSales ? (($thisWeekSales - $lastWeekSales) / $lastWeekSales) * 100 : 0;
+        // Calculate total sales for this week and last week
+        $thisWeekTotal = array_sum($thisWeekSales);
+        $lastWeekTotal = array_sum($lastWeekSales);
+
+        // Calculate percentage change
+        $percentageChange = $lastWeekTotal ? (($thisWeekTotal - $lastWeekTotal) / $lastWeekTotal) * 100 : 0;
 
         return [
             'total_sales' => $totalSales,
             'total_cash_sales' => $totalCashSales,
             'last_month_sales' => $lastMonthSales,
-            'this_week_sales' => $thisWeekSales,
+            'this_week_sales' => $thisWeekTotal,
+            'this_week_breakdown' => $thisWeekSales,
+            'last_week_breakdown' => $lastWeekSales,
             'percentage_change' => $percentageChange,
         ];
     }

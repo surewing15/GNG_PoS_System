@@ -14,6 +14,7 @@ class TransactionItemModel extends Model
 
     protected $fillable = [
         'transaction_id',
+        "user_id",
         'product_id',
         'kilos',
         'price_per_kilo',
@@ -31,5 +32,9 @@ class TransactionItemModel extends Model
     public function product()
     {
         return $this->belongsTo(ProductModel::class, 'product_id', 'product_id');
+    }
+    public function user()
+    {
+        return $this->belongsTo(User::class);
     }
 }

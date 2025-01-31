@@ -28,14 +28,29 @@
                                             </div>
                                             <div class="d-flex justify-content-between mt-3">
                                                 <div>
-                                                    <span>This Week</span>
-                                                    <h6>₱{{ number_format($salesData['this_week_sales'], 2) }}</h6>
+                                                    <span class="d-block mb-1">This Week's Sales Breakdown</span>
+                                                    <div class="small text-muted mb-2">Cash:
+                                                        ₱{{ number_format($salesData['this_week_breakdown']['cash'], 2) }}
+                                                    </div>
+                                                    <div class="small text-muted mb-2">Online:
+                                                        ₱{{ number_format($salesData['this_week_breakdown']['online'], 2) }}
+                                                    </div>
+                                                    <div class="small text-muted">Debit:
+                                                        ₱{{ number_format($salesData['this_week_breakdown']['debit'], 2) }}
+                                                    </div>
+                                                    <h6 class="mt-2">Total:
+                                                        ₱{{ number_format($salesData['this_week_sales'], 2) }}</h6>
                                                 </div>
                                                 <div class="text-end">
                                                     <span>Growth</span>
                                                     <div class="d-flex align-items-center">
-                                                        <i class="bi bi-arrow-up me-1"></i>
-                                                        <h6 class="mb-0">
+                                                        @if ($salesData['percentage_change'] >= 0)
+                                                            <i class="bi bi-arrow-up me-1 text-success"></i>
+                                                        @else
+                                                            <i class="bi bi-arrow-down me-1 text-danger"></i>
+                                                        @endif
+                                                        <h6
+                                                            class="mb-0 {{ $salesData['percentage_change'] >= 0 ? 'text-success' : 'text-danger' }}">
                                                             {{ number_format($salesData['percentage_change'], 2) }}%
                                                         </h6>
                                                     </div>
@@ -184,7 +199,8 @@
                                         <!-- Sales Tab -->
                                         <div class="tab-pane fade" id="sales">
                                             <div class="d-flex justify-content-end mb-3">
-                                                <a href="{{ route('export', 'sales') }}" class="btn btn-primary">Export
+                                                <a href="{{ route('export', 'sales') }}"
+                                                    class="btn btn-primary">Export
                                                     Sales</a>
                                             </div>
                                             <div class="table-responsive">
@@ -237,6 +253,11 @@
                         label: 'Cash Sales',
                         data: salesData.map(d => d.cash_sales),
                         backgroundColor: '#6366f1',
+                        borderRadius: 4
+                    }, {
+                        label: 'Online Sales',
+                        data: salesData.map(d => d.online_sales),
+                        backgroundColor: '#34d399',
                         borderRadius: 4
                     }, {
                         label: 'Debit Sales',

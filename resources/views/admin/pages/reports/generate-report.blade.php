@@ -22,8 +22,7 @@
                                                         <em class="icon ni ni-calendar"></em>
                                                     </div>
                                                     <input type="text" class="form-control date-picker"
-                                                        id="datepicker" placeholder="dd/mm/yyyy"
-                                                        value="{{ date('d/m/Y') }}">
+                                                        id="datepicker" placeholder="dd/mm/yyyy">
                                                 </div>
                                             </li>
                                             <li class="nk-block-tools-opt">
@@ -115,16 +114,20 @@
                                             <ul class="pagination justify-content-center justify-content-md-start">
                                                 <li
                                                     class="page-item {{ $transactions->onFirstPage() ? 'disabled' : '' }}">
-                                                    <a class="page-link" href="#"><em
-                                                            class="icon ni ni-chevrons-left"></em></a>
+                                                    <a class="page-link"
+                                                        href="{{ $transactions->appends(['date' => request('date')])->previousPageUrl() }}">
+                                                        <em class="icon ni ni-chevrons-left"></em>
+                                                    </a>
                                                 </li>
                                                 <li class="page-item active">
                                                     <a class="page-link" href="#">1</a>
                                                 </li>
                                                 <li
                                                     class="page-item {{ !$transactions->hasMorePages() ? 'disabled' : '' }}">
-                                                    <a class="page-link" href="#"><em
-                                                            class="icon ni ni-chevrons-right"></em></a>
+                                                    <a class="page-link"
+                                                        href="{{ $transactions->appends(['date' => request('date')])->nextPageUrl() }}">
+                                                        <em class="icon ni ni-chevrons-right"></em>
+                                                    </a>
                                                 </li>
                                             </ul>
                                         </div>
@@ -146,44 +149,41 @@
 
     <script>
         $(document).ready(function() {
-
             $('.date-picker').datepicker({
                 format: 'dd/mm/yyyy',
                 autoclose: true,
                 todayHighlight: true,
                 orientation: 'bottom',
+                clearBtn: true,
                 templates: {
                     leftArrow: '<em class="icon ni ni-chevron-left"></em>',
                     rightArrow: '<em class="icon ni ni-chevron-right"></em>'
                 }
             }).on('changeDate', function(e) {
-
-                const selectedDate = $(this).datepicker('getDate');
-                const formattedDate = formatDateForBackend(selectedDate);
+                if (!e.date) return;
+                const formattedDate = formatDateForBackend(e.date);
                 window.location.href = `/admin/generate/reports?date=${formattedDate}`;
             });
 
-            // Enhanced search functionality with debounce
-            let searchTimeout;
-            $('#searchInput').on('keyup', function() {
-                clearTimeout(searchTimeout);
-                const searchText = $(this).val().toLowerCase();
+            // Only set date if it's in the URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const dateParam = urlParams.get('date');
 
-                searchTimeout = setTimeout(function() {
-                    $('.nk-tb-item:not(.nk-tb-head)').filter(function() {
-                        $(this).toggle($(this).text().toLowerCase().indexOf(searchText) > -
-                            1);
-                    });
-                }, 300);
-            });
+            if (dateParam) {
+                const [year, month, day] = dateParam.split('-');
+                const formattedDate = `${day}/${month}/${year}`;
+                $('.date-picker').datepicker('setDate', formattedDate);
+            }
         });
 
+        // Add the missing formatDateForBackend function
         function formatDateForBackend(date) {
             const year = date.getFullYear();
             const month = String(date.getMonth() + 1).padStart(2, '0');
             const day = String(date.getDate()).padStart(2, '0');
             return `${year}-${month}-${day}`;
         }
+
 
 
         function exportReport() {

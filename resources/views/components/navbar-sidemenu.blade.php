@@ -224,6 +224,12 @@
                                 <span class="nk-menu-text">Customers</span>
                             </a>
                         </li>
+                        <li class="nk-menu-item">
+                            <a href="/cashier/report" class="nk-menu-link">
+                                <span class="nk-menu-icon"><em class="icon ni ni-file-xls"></em></span>
+                                <span class="nk-menu-text">Report</span>
+                            </a>
+                        </li>
                         {{-- <li class="nk-menu-item">
                             <a href="/cashier/collection" class="nk-menu-link">
                                 <span class="nk-menu-icon"><em class="icon ni ni-wallet-fill"></em></span>

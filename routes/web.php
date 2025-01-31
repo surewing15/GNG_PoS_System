@@ -35,6 +35,7 @@ use App\Http\Controllers\CondemnController;
 use App\Http\Controllers\StockLogController;
 use App\Http\Controllers\ExportController;
 use App\Http\Controllers\GenerateReportController;
+use App\Http\Controllers\CreportController;
 use Illuminate\Support\Facades\DB;
 Route::get('/', function () {
     return view('auth.login');
@@ -88,10 +89,11 @@ Route::middleware([
     // Route for updating stock
 
     // Route::post('/update-stock/{stock_id}', [StockHistoryController::class, 'updateStock'])->name('stock.update');
-
-
+    Route::get('/cashier/report/export', [CreportController::class, 'export'])->name('cashier.report.export');
+    Route::get('/cashier/report', [CreportController::class, 'index']);
     Route::get('/cashier/expenses', [AexpensesController::class, 'index'])->name('expenses.index');
     Route::post('/cashier/expenses', [AexpensesController::class, 'store'])->name('expenses.store');
+    Route::post('/expenses/{expense}/return', [AexpensesController::class, 'returnCash'])->name('expenses.return');
 
     Route::prefix('admin')->group(function () {
         Route::resource('driver', AdriverController::class);

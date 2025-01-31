@@ -486,7 +486,8 @@
                     receipt_id: document.getElementById('receiptID').textContent,
                     status: serviceType === 'deliver' ? 'Not Assigned' : null,
                     amount_paid: Number(amountPaid.toFixed(2)),
-                    change_amount: Number(changeAmount.toFixed(2))
+                    change_amount: Number(changeAmount.toFixed(2)),
+
                 };
                 const response = await fetch('/save-transaction', {
                     method: 'POST',
