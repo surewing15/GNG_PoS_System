@@ -25,7 +25,7 @@ use App\Http\Controllers\AhelperController;
 use App\Http\Controllers\AtruckController;
 use App\Http\Controllers\AexpensesReportController;
 use App\Http\Controllers\TransactionController;
-// use App\Http\Controllers\CashierRecieptController;
+use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\CcustomerController;
 use App\Http\Controllers\ClerkStocksController;
 use App\Http\Controllers\ExpiredProductsController;
@@ -94,6 +94,12 @@ Route::middleware([
     Route::get('/cashier/expenses', [AexpensesController::class, 'index'])->name('expenses.index');
     Route::post('/cashier/expenses', [AexpensesController::class, 'store'])->name('expenses.store');
     Route::post('/expenses/{expense}/return', [AexpensesController::class, 'returnCash'])->name('expenses.return');
+
+    Route::post('/cashier/print-receipt', [CashierController::class, 'printReceipt']);
+
+
+    Route::post('/advance-payment', [CashierController::class, 'processAdvancePayment']);
+    Route::get('/cashier/customer-balance/{id}', [CashierController::class, 'getCustomerBalanceInfo']);
 
     Route::prefix('admin')->group(function () {
         Route::resource('driver', AdriverController::class);

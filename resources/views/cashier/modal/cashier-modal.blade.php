@@ -38,7 +38,29 @@
                                 <option value="cash">Cash</option>
                                 <option value="debit">Debit</option>
                                 <option value="online">Online Payment</option>
+                                <option value="advance_payment">Advance Payment</option>
                             </select>
+                        </div>
+                    </div>
+                    <div id="advancePaymentInfo" class="mb-3" style="display: none;">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6 class="card-title">Advance Payment Details</h6>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <p class="mb-2"><strong>Available Balance:</strong></p>
+                                        <p class="mb-2" id="availableAdvance">₱0.00</p>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <p class="mb-2"><strong>Amount to Use:</strong></p>
+                                        <p class="mb-2" id="advanceToUse">₱0.00</p>
+                                    </div>
+                                </div>
+                                <div id="insufficientAdvanceWarning" class="alert alert-warning mt-2"
+                                    style="display: none;">
+                                    Insufficient advance payment. Additional payment required.
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="col-md-6" id="referenceNumberContainer" style="display: none;">
@@ -383,10 +405,79 @@
             });
         }
 
-        const printButton = document.querySelector('.print-receipt');
-        if (printButton) {
-            printButton.addEventListener('click', () => window.print());
-        }
+        document.querySelector('.print-receipt').addEventListener('click', async function() {
+            try {
+                const receiptData = {
+                    receipt_id: document.getElementById('receiptID').textContent,
+                    customer_name: document.getElementById('customerName').textContent,
+                    service_type: document.getElementById('serviceType').value,
+                    payment_type: document.getElementById('paymentType').value,
+                    items: Array.from(document.querySelectorAll('.receipt-items tbody tr')).map(
+                        row => ({
+                            sku: row.cells[0].textContent,
+                            kilos: parseFloat(row.cells[1].textContent),
+                            price_per_kilo: parseFloat(row.cells[2].textContent.replace(
+                                '₱', '')),
+                            total: parseFloat(row.cells[3].textContent.replace('₱', ''))
+                        })),
+                    subtotal: parseFloat(document.querySelector(
+                        '.receipt-total .mb-2:first-child span').textContent.replace(
+                        '₱', '')),
+                    discount_amount: parseFloat(document.querySelector(
+                        '.receipt-total .mb-2:nth-child(2) span').textContent.replace(
+                        '₱', '')),
+                    total_amount: parseFloat(document.querySelector(
+                        '.receipt-total .fw-bold span').textContent.replace('₱', ''))
+                };
+
+                // Add payment-specific data
+                switch (receiptData.payment_type) {
+                    case 'cash':
+                        receiptData.amount_paid = parseFloat(document.getElementById('amount-paid')
+                            .value);
+                        receiptData.change_amount = parseFloat(document.getElementById(
+                            'change-amount').value);
+                        break;
+                    case 'advance_payment':
+                        receiptData.used_advance_payment = parseFloat(document.getElementById(
+                            'advanceToUse').textContent.replace('₱', ''));
+                        break;
+                    case 'online':
+                        receiptData.reference_number = document.getElementById('reference-number')
+                            .value;
+                        break;
+                }
+
+                const response = await fetch('/cashier/print-receipt', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')
+                            .content
+                    },
+                    body: JSON.stringify(receiptData)
+                });
+
+                const result = await response.json();
+                if (!result.success) {
+                    throw new Error(result.message || 'Print failed');
+                }
+
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Success',
+                    text: 'Receipt printed successfully'
+                });
+
+            } catch (error) {
+                console.error('Print error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Print Error',
+                    text: error.message || 'Failed to print receipt'
+                });
+            }
+        });
 
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
@@ -400,38 +491,137 @@
 
         invoiceModal.addEventListener('hidden.bs.modal', cleanupModal);
     });
+
+
     document.addEventListener('DOMContentLoaded', function() {
         const paymentTypeSelect = document.getElementById('paymentType');
         const paymentSection = document.querySelector('.payment-section');
         const referenceNumberContainer = document.getElementById('referenceNumberContainer');
+        const advancePaymentInfo = document.getElementById('advancePaymentInfo');
+        const availableAdvanceElement = document.getElementById('availableAdvance');
+        const advanceToUseElement = document.getElementById('advanceToUse');
+        const insufficientAdvanceWarning = document.getElementById('insufficientAdvanceWarning');
+        let currentAdvancePayment = 0;
 
-        function togglePaymentFields() {
-            const selectedValue = paymentTypeSelect.value;
+        async function fetchCustomerBalance(customerId) {
+            try {
+                const response = await fetch(`/cashier/customer-balance/${customerId}`);
+                const data = await response.json();
 
-            // Handle payment section visibility
-            if (selectedValue === 'debit' || selectedValue === 'online') {
-                paymentSection.style.display = 'none';
-                document.getElementById('amount-paid').value = '';
-                document.getElementById('change-amount').value = '';
-            } else {
-                paymentSection.style.display = 'block';
-            }
-
-            // Handle reference number field visibility
-            if (selectedValue === 'online') {
-                referenceNumberContainer.style.display = 'block';
-            } else {
-                referenceNumberContainer.style.display = 'none';
-                document.getElementById('reference-number').value = '';
+                if (data.success) {
+                    currentAdvancePayment = parseFloat(data.advance_payment);
+                    return currentAdvancePayment;
+                }
+                return 0;
+            } catch (error) {
+                console.error('Error fetching balance:', error);
+                return 0;
             }
         }
 
-        // Add event listener to payment type select
-        paymentTypeSelect.addEventListener('change', togglePaymentFields);
+        function updateAdvancePaymentDisplay(availableAdvance, grandTotal) {
+            const amountToUse = Math.min(availableAdvance, grandTotal);
+            availableAdvanceElement.textContent = `₱${availableAdvance.toFixed(2)}`;
+            advanceToUseElement.textContent = `₱${amountToUse.toFixed(2)}`;
 
-        // Initial check when modal opens
-        togglePaymentFields();
+            if (availableAdvance < grandTotal) {
+                insufficientAdvanceWarning.style.display = 'block';
+                insufficientAdvanceWarning.textContent =
+                    `Insufficient advance payment. Additional payment of ₱${(grandTotal - availableAdvance).toFixed(2)} required.`;
+            } else {
+                insufficientAdvanceWarning.style.display = 'none';
+            }
+
+            // Update amount paid input
+            document.getElementById('amount-paid').value = amountToUse.toFixed(2);
+            document.getElementById('change-amount').value = '0.00';
+        }
+
+        async function handlePaymentTypeChange() {
+            const selectedValue = paymentTypeSelect.value;
+            const customerId = document.getElementById('selected-customer-id').value;
+            const grandTotal = parseFloat(document.querySelector('.receipt-total .fw-bold span')
+                .textContent.replace('₱', '')) || 0;
+
+            // Reset displays
+            paymentSection.style.display = 'block';
+            referenceNumberContainer.style.display = 'none';
+            advancePaymentInfo.style.display = 'none';
+
+            if (selectedValue === 'advance_payment') {
+                if (!customerId) {
+                    alert('Please select a customer first');
+                    paymentTypeSelect.value = 'cash';
+                    return;
+                }
+
+                const availableAdvance = await fetchCustomerBalance(customerId);
+                advancePaymentInfo.style.display = 'block';
+                paymentSection.style.display = 'none';
+                updateAdvancePaymentDisplay(availableAdvance, grandTotal);
+
+            } else if (selectedValue === 'online') {
+                referenceNumberContainer.style.display = 'block';
+                paymentSection.style.display = 'none';
+            } else if (selectedValue === 'debit') {
+                paymentSection.style.display = 'none';
+            }
+        }
+
+        // Add event listeners
+        if (paymentTypeSelect) {
+            paymentTypeSelect.addEventListener('change', handlePaymentTypeChange);
+        }
+
+        // Modify the existing confirmPayment function
+        window.confirmPayment = async function() {
+            if (isSubmitting) return;
+
+            try {
+                const paymentType = document.getElementById('paymentType').value;
+
+                // Validate based on payment type
+                if (paymentType === 'advance_payment') {
+                    const grandTotal = parseFloat(document.querySelector('.receipt-total .fw-bold span')
+                        .textContent.replace('₱', '')) || 0;
+
+                    if (currentAdvancePayment < grandTotal) {
+                        throw new Error(
+                            `Insufficient advance payment. Additional payment of ₱${(grandTotal - currentAdvancePayment).toFixed(2)} required.`
+                        );
+                    }
+                } else if (paymentType === 'online') {
+                    const referenceNumber = document.getElementById('reference-number').value;
+                    if (!referenceNumber.trim()) {
+                        throw new Error('Please enter a reference number for online payment.');
+                    }
+                } else if (paymentType === 'cash') {
+                    const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
+                    const totalAmount = parseFloat(document.querySelector(
+                            '.receipt-total .fw-bold span')
+                        .textContent.replace('₱', '')) || 0;
+
+                    if (amountPaid < totalAmount) {
+                        throw new Error(
+                            'The amount paid must be equal to or greater than the total amount.');
+                    }
+                }
+
+                // Proceed with saving transaction...
+                const result = await saveTransaction();
+                // Rest of your existing confirmation logic...
+
+            } catch (error) {
+                console.error('Payment error:', error);
+                await Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: error.message || 'Failed to process payment'
+                });
+            }
+        };
     });
+
     document.addEventListener('DOMContentLoaded', function() {
         // Calculate Change Function
         function calculateChange() {
@@ -464,6 +654,16 @@
                     '0');
                 const serviceType = document.getElementById('serviceType').value;
 
+                // Get advance payment amount if that payment type is selected
+                let usedAdvancePayment = 0;
+                if (paymentType === 'advance_payment') {
+                    const advanceText = document.getElementById('advanceToUse').textContent;
+                    usedAdvancePayment = parseFloat(advanceText.replace('₱', '').trim()) || 0;
+                    if (usedAdvancePayment <= 0) {
+                        throw new Error('Invalid advance payment amount');
+                    }
+                }
+
                 const items = Array.from(document.querySelector('.table-striped tbody').rows).map(row => ({
                     product_id: parseInt(row.dataset.productId),
                     kilos: parseFloat(row.querySelector('.number-spinner').value),
@@ -472,23 +672,26 @@
                         ''))
                 }));
 
+                // Format numbers properly and ensure strings are properly passed
                 const transactionData = {
                     customer_id: parseInt(customerId),
-                    service_type: serviceType,
-                    payment_type: paymentType,
-                    reference_number: paymentType === 'online' ? document.getElementById(
-                        'reference-number').value : null, // Add this line
+                    service_type: String(serviceType),
+                    payment_type: String(paymentType), // Ensure it's passed as a string
+                    reference_number: paymentType === 'online' ? String(document.getElementById(
+                        'reference-number').value) : null,
+                    used_advance_payment: paymentType === 'advance_payment' ? Number(usedAdvancePayment
+                        .toFixed(2)) : null,
                     items: items,
                     subtotal: Number(subtotal.toFixed(2)),
                     discount_percentage: Number(discountPercentage.toFixed(2)),
                     discount_amount: Number(discountAmount.toFixed(2)),
                     total_amount: Number(totalAfterDiscount.toFixed(2)),
-                    receipt_id: document.getElementById('receiptID').textContent,
+                    receipt_id: String(document.getElementById('receiptID').textContent),
                     status: serviceType === 'deliver' ? 'Not Assigned' : null,
                     amount_paid: Number(amountPaid.toFixed(2)),
-                    change_amount: Number(changeAmount.toFixed(2)),
-
+                    change_amount: Number(changeAmount.toFixed(2))
                 };
+
                 const response = await fetch('/save-transaction', {
                     method: 'POST',
                     headers: {
@@ -510,7 +713,6 @@
                 throw error;
             }
         }
-
         // Confirm Payment Function
         window.confirmPayment = async function() {
             if (isSubmitting) return;
@@ -522,22 +724,40 @@
                 isSubmitting = true;
                 confirmButton.disabled = true;
 
-                if (paymentType === 'online') {
-                    const referenceNumber = document.getElementById('reference-number').value;
-                    if (!referenceNumber.trim()) {
-                        throw new Error('Please enter a reference number for online payment.');
-                    }
-                }
-                if (paymentType === 'cash') {
-                    const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
-                    const totalAmount = parseFloat(document.querySelector(
-                            '.receipt-total .fw-bold span')
-                        .textContent.replace('₱', '')) || 0;
+                // Validate based on payment type
+                switch (paymentType) {
+                    case 'advance_payment':
+                        const availableAdvance = parseFloat(document.getElementById('availableAdvance')
+                            .textContent.replace('₱', '')) || 0;
+                        const advanceToUse = parseFloat(document.getElementById('advanceToUse')
+                            .textContent.replace('₱', '')) || 0;
+                        const grandTotal = parseFloat(document.querySelector(
+                            '.receipt-total .fw-bold span').textContent.replace('₱', '')) || 0;
 
-                    if (amountPaid < totalAmount) {
-                        throw new Error(
-                            'The amount paid must be equal to or greater than the total amount.');
-                    }
+                        if (availableAdvance < advanceToUse || advanceToUse < grandTotal) {
+                            throw new Error('Insufficient advance payment available.');
+                        }
+                        break;
+
+                    case 'online':
+                        const referenceNumber = document.getElementById('reference-number').value;
+                        if (!referenceNumber.trim()) {
+                            throw new Error('Please enter a reference number for online payment.');
+                        }
+                        break;
+
+                    case 'cash':
+                        const amountPaid = parseFloat(document.getElementById('amount-paid').value) ||
+                            0;
+                        const totalAmount = parseFloat(document.querySelector(
+                            '.receipt-total .fw-bold span').textContent.replace('₱', '')) || 0;
+
+                        if (amountPaid < totalAmount) {
+                            throw new Error(
+                                'The amount paid must be equal to or greater than the total amount.'
+                            );
+                        }
+                        break;
                 }
 
                 const result = await saveTransaction();
@@ -566,8 +786,6 @@
                     });
 
                     resetUIState();
-
-                    // Reload the entire page after successful transaction
                     window.location.reload();
                 }
             } catch (error) {

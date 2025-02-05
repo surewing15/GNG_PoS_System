@@ -12,6 +12,7 @@
         "laravel/tinker": "^2.9",
         "livewire/livewire": "^3.5",
         "maatwebsite/excel": "^1.1",
+        "mike42/escpos-php": "^2.2",
         "phpoffice/phpspreadsheet": "^3.8"
     },
     "require-dev": {

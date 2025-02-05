@@ -3,12 +3,23 @@
     @if (Auth::user()->role == 'Cashier')
         <div class="row g-3">
             <div class="col-md-8">
+                <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal"
+                    data-bs-target="#shortcutsModal">
+                    <em class="icon ni ni-keyboard"></em>
+                    <span>Shortcuts Guide</span>
+                </button>
+                <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal"
+                    data-bs-target="#advancePaymentModal">
+                    <em class="icon ni ni-wallet"></em> Advance Payment
+                </button>
+
                 <!-- First Table -->
                 <div class="row mb-3">
+                    &nbsp
                     <div class="col-md-12">
                         <div class="form-group">
                             <div class="col-sm-12"
-                                style="overflow-y: auto; border: 1px solid rgb(241, 0, 0); height: 450px;">
+                                style="overflow-y: auto; border: 1px solid rgb(241, 0, 0); height: 250px;">
                                 <table class="table table-striped table-bordered">
                                     <thead style="background-color: #2c3e50;">
                                         <tr>
@@ -35,38 +46,43 @@
                         </div>
                     </div>
                 </div>
+                <!-- Add a button to open the shortcuts guide -->
+
 
                 <!-- Second Table -->
                 <div class="nk-block nk-block-lg">
                     <div class="card card-bordered card-preview">
                         <div class="card-inner">
-                            <table class="table table-striped">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">SKU</th>
-                                        <th scope="col">AVAILABLE STOCKS</th>
-                                        <th scope="col">PRICE</th>
-                                        <th scope="col">DATE</th>
-                                        <th scope="col">Time</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach ($MasterStocks as $MasterStock)
+                            <div style="max-height: 400px; overflow-y: auto;">
+                                <table class="table table-striped">
+                                    <thead>
                                         <tr>
-                                            <td>{{ $MasterStock->product->product_sku }}</td>
-                                            <td>{{ $MasterStock->total_all_kilos }}</td>
-                                            <td>₱{{ number_format($MasterStock->price, 2) }}</td>
-                                            <td>{{ \Carbon\Carbon::parse($MasterStock->date)->format('F d, Y') }}</td>
-                                            <td>{{ \Carbon\Carbon::parse($MasterStock->created_at)->format('H:i:s') }}
-                                            </td>
-
+                                            <th scope="col">SKU</th>
+                                            <th scope="col">AVAILABLE STOCKS</th>
+                                            <th scope="col">PRICE</th>
+                                            <th scope="col">DATE</th>
+                                            <th scope="col">Time</th>
                                         </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        @foreach ($MasterStocks as $MasterStock)
+                                            <tr>
+                                                <td>{{ $MasterStock->product->product_sku }}</td>
+                                                <td>{{ $MasterStock->total_all_kilos }}</td>
+                                                <td>₱{{ number_format($MasterStock->price, 2) }}</td>
+                                                <td>{{ \Carbon\Carbon::parse($MasterStock->date)->format('F d, Y') }}
+                                                </td>
+                                                <td>{{ \Carbon\Carbon::parse($MasterStock->created_at)->format('H:i:s') }}
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
+
 
             </div>
 
@@ -92,23 +108,26 @@
                                                 <span class="badge badge-primary fs-5 p-2">KAKING</span>
                                             </div>
 
+                                            @include('cashier.modal.advance-payment-modal')
                                             <!-- Customer Selection -->
                                             <div class="input-group">
                                                 <input type="text" id="customer-search"
                                                     class="form-control form-control-lg"
-                                                    placeholder="Search customer by name or address">
+                                                    placeholder="Search customer by name or address" autocomplete="off">
                                                 <input type="hidden" id="selected-customer-id" name="customer_id"
                                                     required>
                                                 <button class="btn btn-outline-primary btn-dim" data-bs-toggle="modal"
                                                     data-bs-target="#customerModal">Add New</button>
                                             </div>
+
                                             <div id="customer-search-results" class="customer-results-dropdown"></div>
 
 
                                             <!-- SKU Input -->
                                             <div class="input-group">
                                                 <input type="text" id="sku-input"
-                                                    class="form-control form-control-lg" placeholder="Enter SKU">
+                                                    class="form-control form-control-lg" placeholder="Enter SKU"
+                                                    autocomplete="off">
                                                 <button id="search-sku" class="btn btn-primary">ADD TO CART</button>
                                                 <div id="product-details"></div>
                                             </div>
@@ -247,6 +266,79 @@
                     </div>
                 </div>
             </div>
+            <!-- Keyboard Shortcuts Legend Modal -->
+            <div class="modal fade" id="shortcutsModal" tabindex="-1" aria-labelledby="shortcutsModalLabel"
+                aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header bg-primary text-white">
+                            <h5 class="modal-title" id="shortcutsModalLabel">
+                                <em class="icon ni ni-keyboard"></em> Keyboard Shortcuts Guide
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"
+                                aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="shortcuts-container">
+                                <!-- Shortcut Items -->
+                                <div class="shortcut-item mb-3 p-2 border-bottom">
+                                    <div class="d-flex align-items-center mb-1">
+                                        <span class="badge bg-primary me-2">F2</span>
+                                        <strong>Focus SKU Input</strong>
+                                    </div>
+                                    <small class="text-muted">Quickly jump to SKU entry field and clear existing
+                                        dropdown</small>
+                                </div>
+
+                                <div class="shortcut-item mb-3 p-2 border-bottom">
+                                    <div class="d-flex align-items-center mb-1">
+                                        <span class="badge bg-warning me-2">F7</span>
+                                        <strong>Void Last Item</strong>
+                                    </div>
+                                    <small class="text-muted">Remove the last item added to the cart</small>
+                                </div>
+
+                                <div class="shortcut-item mb-3 p-2 border-bottom">
+                                    <div class="d-flex align-items-center mb-1">
+                                        <span class="badge bg-danger me-2">F8</span>
+                                        <strong>Void All Items</strong>
+                                    </div>
+                                    <small class="text-muted">Clear the entire cart (requires confirmation)</small>
+                                </div>
+
+                                <div class="shortcut-item mb-3 p-2 border-bottom">
+                                    <div class="d-flex align-items-center mb-1">
+                                        <span class="badge bg-success me-2">Left Shift</span>
+                                        <strong>Place Order</strong>
+                                    </div>
+                                    <small class="text-muted">Open place order modal (requires items in cart and
+                                        selected customer)</small>
+                                </div>
+
+                                <div class="shortcut-item mb-3 p-2">
+                                    <div class="d-flex align-items-center mb-1">
+                                        <span class="badge bg-info me-2">\</span>
+                                        <strong>Apply Discount</strong>
+                                    </div>
+                                    <small class="text-muted">Quick access to discount entry (requires items in
+                                        cart)</small>
+                                </div>
+                            </div>
+
+                            <div class="alert alert-light mt-3">
+                                <small>
+                                    <em class="icon ni ni-info"></em>
+                                    Note: Some shortcuts require specific conditions (e.g., items in cart, customer
+                                    selected) to work.
+                                </small>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
         @include('cashier.modal.cashier-modal')
         @include('cashier.modal.customer-modal')
@@ -336,6 +428,38 @@
                 border-bottom: none;
             }
         </style>
+        <style>
+            .shortcuts-container {
+                max-height: 400px;
+                overflow-y: auto;
+            }
+
+            .shortcut-item {
+                transition: background-color 0.2s;
+            }
+
+            .shortcut-item:hover {
+                background-color: #f8f9fa;
+            }
+
+            .badge {
+                font-family: monospace;
+                font-size: 0.9rem;
+                padding: 0.4em 0.6em;
+            }
+        </style>
+
+        <script>
+            // Add this to your existing JavaScript
+            document.addEventListener('keydown', function(event) {
+                // Show shortcuts guide when pressing Ctrl + /
+                if (event.ctrlKey && event.key === '/') {
+                    event.preventDefault();
+                    const shortcutsModal = new bootstrap.Modal(document.getElementById('shortcutsModal'));
+                    shortcutsModal.show();
+                }
+            });
+        </script>|
         <script>
             let editModal;
             let currentProduct = null;

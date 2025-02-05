@@ -19,8 +19,9 @@ class CustomerModel extends Model
         'Address',
         'PhoneNumber',
         'Balance',
-         'status',
-         'Collection_ID',
+        'status',
+        'advance_payment',
+        'Collection_ID',
         'payment_type'
 
 

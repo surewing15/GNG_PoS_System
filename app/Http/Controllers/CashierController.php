@@ -4,12 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Models\MasterStockModel;
 use App\Models\TransactionModel;
+use App\Services\OrderPrinterService;
 use Illuminate\Http\Request;
 use App\Models\ProductModel;
 use App\Models\StockModel;
 use Illuminate\Support\Facades\Auth;
 use App\Models\CustomerModel;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+use Exception;
 
 class CashierController extends Controller
 {
@@ -182,120 +185,67 @@ class CashierController extends Controller
     public function saveTransaction(Request $request)
     {
         try {
-            // Get the current user ID at the beginning
             $userId = Auth::id();
             if (!$userId) {
                 throw new \Exception('User not authenticated');
             }
 
-            \Log::info('Received transaction data:', $request->all());
-
-            $maxAttempts = 3;
-            $attempt = 0;
-            $validated = null;
-
-            do {
-                try {
-                    if ($attempt > 0) {
-                        $newReceiptId = $this->generateUniqueReceiptId();
-                        $requestData = $request->all();
-                        $requestData['receipt_id'] = $newReceiptId;
-                        $request->replace($requestData);
-                    }
-
-                    $validated = $request->validate([
-                        'customer_id' => 'required|exists:tbl_customers,CustomerID',
-                        'service_type' => 'required|string',
-                        'items' => 'required|array',
-                        'items.*.product_id' => 'required|integer|exists:tbl_master_stock,product_id',
-                        'items.*.kilos' => 'required|numeric|min:0.1',
-                        'items.*.price_per_kilo' => 'required|numeric|min:0',
-                        'items.*.total' => 'required|numeric|min:0',
-                        'subtotal' => 'required|numeric|min:0',
-                        'discount_percentage' => 'required|numeric|min:0|max:100',
-                        'discount_amount' => 'required|numeric|min:0',
-                        'total_amount' => 'required|numeric|min:0',
-                        'receipt_id' => 'required|string|unique:tbl_transactions,receipt_id',
-                        'status' => 'nullable|string',
-                        'payment_type' => 'required|string|in:cash,debit,online',
-                        'reference_number' => 'nullable|string|max:255',
-                        'amount_paid' => 'required|numeric|min:0',
-                        'change_amount' => 'required|numeric|min:0'
-                    ]);
-
-                    break;
-
-                } catch (\Illuminate\Validation\ValidationException $e) {
-                    if (!isset($e->errors()['receipt_id']) || $attempt >= $maxAttempts - 1) {
-                        return response()->json([
-                            'success' => false,
-                            'message' => 'Validation failed',
-                            'errors' => $e->errors()
-                        ], 422);
-                    }
-                    $attempt++;
-                }
-            } while ($attempt < $maxAttempts);
+            // Validate the request
+            $validated = $request->validate([
+                'customer_id' => 'required|exists:tbl_customers,CustomerID',
+                'service_type' => 'required|string',
+                'payment_type' => 'required|string|in:cash,debit,online,advance_payment',
+                'items' => 'required|array',
+                'items.*.product_id' => 'required|integer',
+                'items.*.kilos' => 'required|numeric|min:0.1',
+                'items.*.price_per_kilo' => 'required|numeric|min:0',
+                'items.*.total' => 'required|numeric|min:0',
+                'subtotal' => 'required|numeric|min:0',
+                'discount_percentage' => 'required|numeric|min:0|max:100',
+                'discount_amount' => 'required|numeric|min:0',
+                'total_amount' => 'required|numeric|min:0',
+                'receipt_id' => 'required|string|unique:tbl_transactions,receipt_id',
+                'used_advance_payment' => 'required_if:payment_type,advance_payment|numeric|min:0',
+            ]);
 
             DB::beginTransaction();
 
-            // Update stock levels
-            foreach ($validated['items'] as $item) {
-                $masterStock = MasterStockModel::where('product_id', $item['product_id'])
-                    ->where('price', $item['price_per_kilo'])
-                    ->lockForUpdate()
-                    ->first();
+            // Handle advance payment
+            if ($validated['payment_type'] === 'advance_payment') {
+                $customer = CustomerModel::lockForUpdate()->find($validated['customer_id']);
 
-                if (!$masterStock) {
-                    throw new \Exception("Stock not found for product ID: {$item['product_id']} at price ₱{$item['price_per_kilo']}");
+                if (!$customer) {
+                    throw new \Exception('Customer not found');
                 }
 
-                if ($masterStock->total_all_kilos < $item['kilos']) {
-                    throw new \Exception("Insufficient stock for price ₱{$item['price_per_kilo']}. Available: {$masterStock->total_all_kilos}, Required: {$item['kilos']}");
+                if ($customer->advance_payment < $validated['used_advance_payment']) {
+                    throw new \Exception('Insufficient advance payment balance');
                 }
 
-                $masterStock->total_all_kilos -= $item['kilos'];
-
-                if ($masterStock->total_all_kilos <= 0) {
-                    $masterStock->delete();
-                } else {
-                    $masterStock->save();
-                }
+                // Deduct from advance payment
+                $customer->advance_payment -= $validated['used_advance_payment'];
+                $customer->save();
             }
 
-            // Update customer balance if payment type is debit
-            if ($validated['payment_type'] === 'debit') {
-                $result = DB::table('tbl_customers')
-                    ->where('CustomerID', $validated['customer_id'])
-                    ->update([
-                        'Balance' => DB::raw('Balance + ' . $validated['subtotal']),
-                        'updated_at' => now()
-                    ]);
-            }
-
-            $now = \Carbon\Carbon::now('Asia/Manila');
-
-
+            // Create the transaction
             $transaction = TransactionModel::create([
                 'CustomerID' => $validated['customer_id'],
                 'user_id' => $userId,
                 'service_type' => $validated['service_type'],
+                'payment_type' => $validated['payment_type'],
                 'subtotal' => $validated['subtotal'],
                 'discount_percentage' => $validated['discount_percentage'],
                 'discount_amount' => $validated['discount_amount'],
                 'total_amount' => $validated['total_amount'],
                 'receipt_id' => $validated['receipt_id'],
                 'status' => $validated['service_type'] === 'deliver' ? 'Not Assigned' : null,
-                'payment_type' => $validated['payment_type'],
-                'date' => $now,
-                'reference_number' => $request->reference_number,
-                'amount_paid' => $validated['amount_paid'],
-                'change_amount' => $validated['change_amount'],
-                'updated_at' => $now,
-                'created_at' => $now
+                'used_advance_payment' => $validated['payment_type'] === 'advance_payment' ? $validated['used_advance_payment'] : 0,
+                'amount_paid' => $validated['payment_type'] === 'advance_payment' ? $validated['used_advance_payment'] : ($validated['amount_paid'] ?? 0),
+                'change_amount' => $validated['payment_type'] === 'advance_payment' ? 0 : ($validated['change_amount'] ?? 0),
+                'date' => now(),
             ]);
 
-            // Create transaction items with user_id
+            // Create transaction items
             foreach ($validated['items'] as $item) {
                 $transaction->items()->create([
                     'product_id' => $item['product_id'],
@@ -320,6 +270,7 @@ class CashierController extends Controller
                 'message' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
+
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()
@@ -371,6 +322,100 @@ class CashierController extends Controller
 
         return view('cashier.pages.collection.index', $data);
     }
+    public function processAdvancePayment(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'customer_id' => 'required|exists:tbl_customers,CustomerID',
+                'amount' => 'required|numeric|min:0',
+            ]);
 
+            DB::beginTransaction();
+
+            $customer = CustomerModel::lockForUpdate()->find($validated['customer_id']);
+            if (!$customer) {
+                throw new \Exception('Customer not found');
+            }
+
+            // Update advance payment
+            $customer->advance_payment += $validated['amount'];
+            $customer->save();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Advance payment recorded successfully',
+                'new_balance' => $customer->advance_payment
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+    public function getCustomerBalanceInfo($id)
+    {
+        $customer = CustomerModel::select('Balance', 'advance_payment')
+            ->where('CustomerID', $id)
+            ->first();
+
+        if (!$customer) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Customer not found'
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'balance' => (float) $customer->Balance,
+            'advance_payment' => (float) $customer->advance_payment
+        ]);
+    }
+    public function printReceipt(Request $request)
+    {
+        try {
+            $validated = $request->validate([
+                'receipt_id' => 'required|string',
+                'customer_name' => 'required|string',
+                'service_type' => 'required|string',
+                'payment_type' => 'required|string',
+                'items' => 'required|array',
+                'items.*.sku' => 'required|string',
+                'items.*.kilos' => 'required|numeric',
+                'items.*.price_per_kilo' => 'required|numeric',
+                'items.*.total' => 'required|numeric',
+                'subtotal' => 'required|numeric',
+                'discount_amount' => 'required|numeric',
+                'total_amount' => 'required|numeric',
+                'amount_paid' => 'nullable|required_if:payment_type,cash|numeric',
+                'change_amount' => 'nullable|required_if:payment_type,cash|numeric',
+                'used_advance_payment' => 'nullable|required_if:payment_type,advance_payment|numeric',
+                'reference_number' => 'nullable|required_if:payment_type,online|string'
+            ]);
+
+            // Make sure the OrderPrinterService is correctly implemented
+            $printerService = new OrderPrinterService();
+            $printerService->printReceipt($validated);
+
+            return response()->json(['success' => true]);
+
+        } catch (ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation error',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
 
 }

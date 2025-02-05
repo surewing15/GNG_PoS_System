@@ -37,7 +37,7 @@
 
         <div class="card mb-4">
             <div class="card-body">
-                <form method="GET" class="row g-3">
+                <form method="GET" action="/cashier/report" class="row g-3">
                     <div class="col-md-4">
                         <label class="form-label">Start Date</label>
                         <input type="date" class="form-control" name="start_date" value="{{ $startDateFormatted }}">
@@ -50,9 +50,9 @@
                         <label class="form-label">Payment Type</label>
                         <select class="form-select" name="payment_type">
                             <option value="">All Types</option>
-                            <option value="cash" {{ $paymentType === 'cash' ? 'selected' : '' }}>Cash</option>
-                            <option value="debit" {{ $paymentType === 'debit' ? 'selected' : '' }}>Debit</option>
-                            <option value="online" {{ $paymentType === 'online' ? 'selected' : '' }}>Online</option>
+                            <option value="cash" {{ $paymentType == 'cash' ? 'selected' : '' }}>Cash</option>
+                            <option value="debit" {{ $paymentType == 'debit' ? 'selected' : '' }}>Debit</option>
+                            <option value="online" {{ $paymentType == 'online' ? 'selected' : '' }}>Online</option>
                         </select>
                     </div>
                     <div class="col-md-1 d-flex align-items-end">
