@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\TransactionModel;
+use App\Services\OrderPrinterService;
 use App\Services\ThermalPrinterService;
 use Illuminate\Http\Request;
 
@@ -14,7 +15,7 @@ class ReceiptController extends Controller
             $transaction = TransactionModel::with(['customer', 'items.product'])
                 ->findOrFail($transactionId);
 
-            $printerService = new ThermalPrinterService();
+            $printerService = new OrderPrinterService();
             $printerService->printReceipt($transaction);
 
             return response()->json([

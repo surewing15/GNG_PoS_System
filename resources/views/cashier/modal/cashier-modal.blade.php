@@ -577,39 +577,172 @@
         window.confirmPayment = async function() {
             if (isSubmitting) return;
 
+            const confirmButton = document.querySelector('button.btn-success');
+            const paymentType = document.getElementById('paymentType').value;
+            const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
+            const totalAmount = parseFloat(document.querySelector('.receipt-total .fw-bold span')
+                .textContent.replace('₱', '')) || 0;
+            const customerId = document.getElementById('selected-customer-id').value;
+
             try {
-                const paymentType = document.getElementById('paymentType').value;
+                isSubmitting = true;
+                confirmButton.disabled = true;
 
                 // Validate based on payment type
+                switch (paymentType) {
+                    case 'advance_payment':
+                        const availableAdvance = parseFloat(document.getElementById('availableAdvance')
+                            .textContent.replace('₱', '')) || 0;
+                        const advanceToUse = parseFloat(document.getElementById('advanceToUse')
+                            .textContent.replace('₱', '')) || 0;
+
+                        if (availableAdvance < advanceToUse) {
+                            throw new Error('Insufficient advance payment available.');
+                        }
+                        break;
+
+                    case 'online':
+                        const referenceNumber = document.getElementById('reference-number').value;
+                        if (!referenceNumber.trim()) {
+                            throw new Error('Please enter a reference number for online payment.');
+                        }
+                        break;
+
+                    case 'cash':
+                        if (amountPaid <= 0) {
+                            throw new Error('Amount paid must be greater than 0');
+                        }
+
+                        // Calculate remaining balance
+                        const remainingBalance = totalAmount - amountPaid;
+                        if (remainingBalance > 0) {
+                            // Show confirmation for partial payment
+                            const confirmPartial = await Swal.fire({
+                                title: 'Partial Payment',
+                                text: `₱${remainingBalance.toFixed(2)} will be added to customer's balance. Continue?`,
+                                icon: 'warning',
+                                showCancelButton: true,
+                                confirmButtonText: 'Yes, continue',
+                                cancelButtonText: 'No, cancel'
+                            });
+
+                            if (!confirmPartial.isConfirmed) {
+                                isSubmitting = false;
+                                confirmButton.disabled = false;
+                                return;
+                            }
+                        }
+                        break;
+                }
+
+                // Get transaction data
+                const serviceType = document.getElementById('serviceType').value;
+                const subtotal = parseFloat(document.getElementById('total').textContent.replace('₱',
+                    ''));
+                const discountAmount = parseFloat(document.getElementById('discount-amount').textContent
+                    .replace('₱', ''));
+                const discountPercentage = parseFloat(document.getElementById('discount-input').value ||
+                    '0');
+                const changeAmount = parseFloat(document.getElementById('change-amount').value) || 0;
+
+                // Get advance payment amount if that payment type is selected
+                let usedAdvancePayment = 0;
                 if (paymentType === 'advance_payment') {
-                    const grandTotal = parseFloat(document.querySelector('.receipt-total .fw-bold span')
-                        .textContent.replace('₱', '')) || 0;
-
-                    if (currentAdvancePayment < grandTotal) {
-                        throw new Error(
-                            `Insufficient advance payment. Additional payment of ₱${(grandTotal - currentAdvancePayment).toFixed(2)} required.`
-                        );
-                    }
-                } else if (paymentType === 'online') {
-                    const referenceNumber = document.getElementById('reference-number').value;
-                    if (!referenceNumber.trim()) {
-                        throw new Error('Please enter a reference number for online payment.');
-                    }
-                } else if (paymentType === 'cash') {
-                    const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
-                    const totalAmount = parseFloat(document.querySelector(
-                            '.receipt-total .fw-bold span')
-                        .textContent.replace('₱', '')) || 0;
-
-                    if (amountPaid < totalAmount) {
-                        throw new Error(
-                            'The amount paid must be equal to or greater than the total amount.');
+                    const advanceText = document.getElementById('advanceToUse').textContent;
+                    usedAdvancePayment = parseFloat(advanceText.replace('₱', '').trim()) || 0;
+                    if (usedAdvancePayment <= 0) {
+                        throw new Error('Invalid advance payment amount');
                     }
                 }
 
-                // Proceed with saving transaction...
-                const result = await saveTransaction();
-                // Rest of your existing confirmation logic...
+                // Get items from cart
+                const items = Array.from(document.querySelector('.table-striped tbody').rows).map(row =>
+                    ({
+                        product_id: parseInt(row.dataset.productId),
+                        kilos: parseFloat(row.querySelector('.number-spinner').value),
+                        price_per_kilo: parseFloat(row.querySelector('.price-input').value),
+                        total: parseFloat(row.querySelector('.subtotal').textContent.replace(
+                            '₱', ''))
+                    }));
+
+                // Calculate remaining balance for balance update
+                const remainingBalance = totalAmount - amountPaid;
+
+                // Prepare transaction data
+                const transactionData = {
+                    customer_id: parseInt(customerId),
+                    service_type: String(serviceType),
+                    payment_type: String(paymentType),
+                    reference_number: paymentType === 'online' ? String(document.getElementById(
+                        'reference-number').value) : null,
+                    used_advance_payment: paymentType === 'advance_payment' ? Number(
+                        usedAdvancePayment.toFixed(2)) : null,
+                    items: items,
+                    subtotal: Number(subtotal.toFixed(2)),
+                    discount_percentage: Number(discountPercentage.toFixed(2)),
+                    discount_amount: Number(discountAmount.toFixed(2)),
+                    total_amount: Number(totalAmount.toFixed(2)),
+                    receipt_id: String(document.getElementById('receiptID').textContent),
+                    status: serviceType === 'deliver' ? 'Not Assigned' : null,
+                    amount_paid: Number(amountPaid.toFixed(2)),
+                    change_amount: Number(changeAmount.toFixed(2)),
+                    remaining_balance: Number(Math.max(0, remainingBalance).toFixed(
+                        2)) // Add remaining balance
+                };
+
+                // Send transaction to server
+                const response = await fetch('/save-transaction', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')
+                            .content,
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify(transactionData)
+                });
+
+                const result = await response.json();
+                if (!result.success) {
+                    throw new Error(result.message || 'Transaction failed');
+                }
+
+                // Handle success
+                let message = `Payment successful! Transaction ID: ${result.transaction_id}`;
+                if (remainingBalance > 0) {
+                    message +=
+                    `\n₱${remainingBalance.toFixed(2)} has been added to customer's balance.`;
+                }
+
+                // Close modal and reset UI
+                const modal = bootstrap.Modal.getInstance(document.getElementById('invoiceModal'));
+                if (modal) {
+                    modal.hide();
+                }
+
+                // Clear cart and reset UI elements
+                document.querySelector('.table-striped tbody').innerHTML = '';
+                ['total', 'discount-amount', 'total-after-discount'].forEach(id => {
+                    document.getElementById(id).textContent = '₱0.00';
+                });
+
+                ['discount-input', 'amount-paid', 'change-amount', 'customer-search',
+                    'selected-customer-id', 'sku-input'
+                ]
+                .forEach(id => {
+                    document.getElementById(id).value = '';
+                });
+
+                await Swal.fire({
+                    icon: 'success',
+                    title: 'Success',
+                    text: message,
+                    allowOutsideClick: false
+                });
+
+                // Final cleanup and refresh
+                resetUIState();
+                window.location.reload();
 
             } catch (error) {
                 console.error('Payment error:', error);
@@ -618,6 +751,9 @@
                     title: 'Error',
                     text: error.message || 'Failed to process payment'
                 });
+            } finally {
+                isSubmitting = false;
+                confirmButton.disabled = false;
             }
         };
     });
@@ -713,93 +849,7 @@
                 throw error;
             }
         }
-        // Confirm Payment Function
-        window.confirmPayment = async function() {
-            if (isSubmitting) return;
 
-            const confirmButton = document.querySelector('button.btn-success');
-            const paymentType = document.getElementById('paymentType').value;
-
-            try {
-                isSubmitting = true;
-                confirmButton.disabled = true;
-
-                // Validate based on payment type
-                switch (paymentType) {
-                    case 'advance_payment':
-                        const availableAdvance = parseFloat(document.getElementById('availableAdvance')
-                            .textContent.replace('₱', '')) || 0;
-                        const advanceToUse = parseFloat(document.getElementById('advanceToUse')
-                            .textContent.replace('₱', '')) || 0;
-                        const grandTotal = parseFloat(document.querySelector(
-                            '.receipt-total .fw-bold span').textContent.replace('₱', '')) || 0;
-
-                        if (availableAdvance < advanceToUse || advanceToUse < grandTotal) {
-                            throw new Error('Insufficient advance payment available.');
-                        }
-                        break;
-
-                    case 'online':
-                        const referenceNumber = document.getElementById('reference-number').value;
-                        if (!referenceNumber.trim()) {
-                            throw new Error('Please enter a reference number for online payment.');
-                        }
-                        break;
-
-                    case 'cash':
-                        const amountPaid = parseFloat(document.getElementById('amount-paid').value) ||
-                            0;
-                        const totalAmount = parseFloat(document.querySelector(
-                            '.receipt-total .fw-bold span').textContent.replace('₱', '')) || 0;
-
-                        if (amountPaid < totalAmount) {
-                            throw new Error(
-                                'The amount paid must be equal to or greater than the total amount.'
-                            );
-                        }
-                        break;
-                }
-
-                const result = await saveTransaction();
-                if (result.success) {
-                    const modal = bootstrap.Modal.getInstance(document.getElementById('invoiceModal'));
-                    if (modal) {
-                        modal.hide();
-                    }
-
-                    // Clear cart and reset UI
-                    document.querySelector('.table-striped tbody').innerHTML = '';
-                    ['total', 'discount-amount', 'total-after-discount'].forEach(id => {
-                        document.getElementById(id).textContent = '₱0.00';
-                    });
-                    ['discount-input', 'amount-paid', 'change-amount', 'customer-search',
-                        'selected-customer-id', 'sku-input'
-                    ].forEach(id => {
-                        document.getElementById(id).value = '';
-                    });
-
-                    await Swal.fire({
-                        icon: 'success',
-                        title: 'Success',
-                        text: `Payment successful! Transaction ID: ${result.transaction_id}`,
-                        allowOutsideClick: false
-                    });
-
-                    resetUIState();
-                    window.location.reload();
-                }
-            } catch (error) {
-                console.error('Payment error:', error);
-                await Swal.fire({
-                    icon: 'error',
-                    title: 'Error',
-                    text: error.message || 'Failed to process payment'
-                });
-            } finally {
-                isSubmitting = false;
-                confirmButton.disabled = false;
-            }
-        };
         // Event Listeners for Payment Handling
         document.getElementById('amount-paid').addEventListener('input', calculateChange);
         document.getElementById('discount-input').addEventListener('input', calculateChange);

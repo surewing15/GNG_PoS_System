@@ -205,26 +205,49 @@ class CashierController extends Controller
                 'discount_amount' => 'required|numeric|min:0',
                 'total_amount' => 'required|numeric|min:0',
                 'receipt_id' => 'required|string|unique:tbl_transactions,receipt_id',
-                'used_advance_payment' => 'required_if:payment_type,advance_payment|numeric|min:0',
+                'amount_paid' => 'required|numeric|min:0',
             ]);
 
             DB::beginTransaction();
 
-            // Handle advance payment
+            // Get customer record with lock
+            $customer = CustomerModel::lockForUpdate()->find($validated['customer_id']);
+            if (!$customer) {
+                throw new \Exception('Customer not found');
+            }
+
+            // Calculate remaining balance
+            $remainingBalance = $validated['total_amount'] - $validated['amount_paid'];
+
+            // Update customer balance
+            if ($remainingBalance > 0) {
+                $customer->Balance += $remainingBalance;
+                $customer->save();
+            }
+
+            // Handle advance payment if applicable
             if ($validated['payment_type'] === 'advance_payment') {
-                $customer = CustomerModel::lockForUpdate()->find($validated['customer_id']);
-
-                if (!$customer) {
-                    throw new \Exception('Customer not found');
-                }
-
                 if ($customer->advance_payment < $validated['used_advance_payment']) {
                     throw new \Exception('Insufficient advance payment balance');
                 }
-
-                // Deduct from advance payment
                 $customer->advance_payment -= $validated['used_advance_payment'];
                 $customer->save();
+            }
+
+            // Update stock levels first
+            foreach ($validated['items'] as $item) {
+                $masterStock = MasterStockModel::lockForUpdate()->where('product_id', $item['product_id'])->first();
+
+                if (!$masterStock) {
+                    throw new \Exception("Stock not found for product ID: {$item['product_id']}");
+                }
+
+                if ($masterStock->total_all_kilos < $item['kilos']) {
+                    throw new \Exception("Insufficient stock for product ID: {$item['product_id']}. Available: {$masterStock->total_all_kilos}, Requested: {$item['kilos']}");
+                }
+
+                $masterStock->total_all_kilos -= $item['kilos'];
+                $masterStock->save();
             }
 
             // Create the transaction
@@ -240,8 +263,9 @@ class CashierController extends Controller
                 'receipt_id' => $validated['receipt_id'],
                 'status' => $validated['service_type'] === 'deliver' ? 'Not Assigned' : null,
                 'used_advance_payment' => $validated['payment_type'] === 'advance_payment' ? $validated['used_advance_payment'] : 0,
-                'amount_paid' => $validated['payment_type'] === 'advance_payment' ? $validated['used_advance_payment'] : ($validated['amount_paid'] ?? 0),
-                'change_amount' => $validated['payment_type'] === 'advance_payment' ? 0 : ($validated['change_amount'] ?? 0),
+                'amount_paid' => $validated['amount_paid'],
+                'change_amount' => max(0, $validated['amount_paid'] - $validated['total_amount']),
+                'remaining_balance' => $remainingBalance,
                 'date' => now(),
             ]);
 
@@ -261,7 +285,8 @@ class CashierController extends Controller
             return response()->json([
                 'success' => true,
                 'transaction_id' => $transaction->id,
-                'receipt_id' => $validated['receipt_id']
+                'receipt_id' => $validated['receipt_id'],
+                'added_to_balance' => $remainingBalance > 0 ? $remainingBalance : 0
             ]);
 
         } catch (\Exception $e) {
