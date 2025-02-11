@@ -36,6 +36,7 @@ use App\Http\Controllers\StockLogController;
 use App\Http\Controllers\ExportController;
 use App\Http\Controllers\GenerateReportController;
 use App\Http\Controllers\CreportController;
+use App\Http\Controllers\PrinterController;
 use Illuminate\Support\Facades\DB;
 Route::get('/', function () {
     return view('auth.login');
@@ -49,6 +50,13 @@ Route::middleware([
     'verified',
 ])->group(function () {
 
+
+    Route::get('/super/admin/dashboard', function () {
+        return view('superadmin.index');
+    })->name('superadmin.index');
+
+    Route::get('/test-print', [PrinterController::class, 'testPrint']);
+    Route::post('/cashier/print-receipt', [CashierController::class, 'printReceipt']);
 
     Route::get('/dashboard', [AdminController::class, 'index'])->name('admin.dashboard');
     Route::get('/admin/customer', [AcustomerController::class, 'index']);
@@ -84,6 +92,7 @@ Route::middleware([
 
     // Route for displaying stock history
     Route::get('/admin/history', [StockHistoryController::class, 'showStockHistory'])->name('stock.history');
+    Route::get('/stock/history', [StockHistoryController::class, 'showStockHistory'])->name('stock.history');
     Route::get('/admin/purchase/history', [ApurchaseHistoryController::class, 'index'])->name('stock.history');
 
     // Route for updating stock
@@ -91,12 +100,16 @@ Route::middleware([
     // Route::post('/update-stock/{stock_id}', [StockHistoryController::class, 'updateStock'])->name('stock.update');
     Route::get('/cashier/report/export', [CreportController::class, 'export'])->name('cashier.report.export');
     Route::get('/cashier/report', [CreportController::class, 'index']);
+
+    Route::get('/cashier/denomination', [CreportController::class, 'denominationIndex'])->name('cashier.denomination.index');
+    Route::post('/cashier/denomination/store', [CreportController::class, 'storeDenomination'])->name('cashier.denomination.store');
+
+
     Route::get('/cashier/expenses', [AexpensesController::class, 'index'])->name('expenses.index');
     Route::post('/cashier/expenses', [AexpensesController::class, 'store'])->name('expenses.store');
     Route::post('/expenses/{expense}/return', [AexpensesController::class, 'returnCash'])->name('expenses.return');
 
-    Route::post('/cashier/print-receipt', [CashierController::class, 'printReceipt']);
-
+    Route::post('/print-receipt/{receipt_id}', [CashierController::class, 'printReceipt'])->name('print.receipt');
 
     Route::post('/advance-payment', [CashierController::class, 'processAdvancePayment']);
     Route::get('/cashier/customer-balance/{id}', [CashierController::class, 'getCustomerBalanceInfo']);

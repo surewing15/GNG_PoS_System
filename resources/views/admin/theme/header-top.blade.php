@@ -1,4 +1,3 @@
-
 <div class="nk-header nk-header-fixed is-light" style="border-top: 10px solid #e20013">
     <div class="container-fluid">
         <div class="nk-header-wrap">
@@ -25,7 +24,7 @@
                                     <div class="user-status user-status-active"
                                         style="text-transform: uppercase; color: #e20013">ID #: 2019F008</div>
                                     <div class="user-name dropdown-indicator" style="text-transform: uppercase">
-                                       </div>
+                                    </div>
                                 </div>
                             </div>
                         </a>

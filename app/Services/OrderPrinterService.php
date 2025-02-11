@@ -1,25 +1,35 @@
 <?php
-
 namespace App\Services;
 
-use Mike42\Escpos\PrintConnectors\NetworkPrintConnector;
+use Mike42\Escpos\PrintConnectors\WindowsPrintConnector;
 use Mike42\Escpos\Printer;
 use Exception;
 
 class OrderPrinterService
 {
-    private Printer $printer;
-    private NetworkPrintConnector $connector;
+    private $printer;
+    private $connector;
+    private const MAX_RETRIES = 3;
+    private const RETRY_DELAY = 1;
 
-    public function __construct(string $ip = "192.168.1.87", int $port = 9100)
+    public function __construct()
     {
+        $this->initializePrinter();
+    }
+
+    private function initializePrinter()
+    {
+        if ($this->printer !== null) {
+            return;
+        }
+
         try {
-            $this->connector = new NetworkPrintConnector($ip, $port);
+            $this->connector = new WindowsPrintConnector("EPSON LQ-310");
             $this->printer = new Printer($this->connector);
-            $this->printer->setPrintWidth(241.3);
-            $this->printer->setLineSpacing(6);
+            \Log::info("Printer connected successfully");
         } catch (Exception $e) {
-            throw new Exception("Printer connection failed: " . $e->getMessage());
+            \Log::error("Printer initialization error: " . $e->getMessage());
+            throw $e;
         }
     }
 
@@ -28,84 +38,94 @@ class OrderPrinterService
         try {
             $this->printer->initialize();
 
-            // Store settings
-            $this->printer->setJustification(Printer::JUSTIFY_CENTER);
-            $this->printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
+            // Select 12 CPI font size (for 9.5" width)
+            $this->printer->text("\x1B\x4D"); // Select 12 CPI
+            $this->printer->text("\x1B\x32"); // Set 1/6" line spacing
+
+            // Header
             $this->printer->text("3GLG CHICKEN PRODUCING\n");
-            $this->printer->selectPrintMode();
             $this->printer->text("Zone 4 Sta. Cruz, Tagoloan, Mis. Or.\n\n");
 
-            // Receipt details
-            $this->printer->setJustification(Printer::JUSTIFY_LEFT);
-            $this->printer->text("Receipt #: " . $data['receipt_id'] . "\n");
-            $this->printer->text("Date: " . date('Y-m-d H:i:s') . "\n");
-            $this->printer->text("Customer: " . $data['customer_name'] . "\n");
-            $this->printer->text("Service: " . ucfirst($data['service_type']) . "\n\n");
+            // Order List Header - Using tab positions for 9.5" width
+            $this->printer->text("ORDER LIST");
+            $this->printer->text(str_pad("SALES ORDER: " . $data['receipt_id'], 50) . "\n");
 
-            // Table header
-            $this->printer->text(str_repeat("-", 48) . "\n");
-            $this->printer->text(sprintf("%-20s %3s %6s %7s\n", "SKU", "KG", "₱/KG", "TOTAL"));
-            $this->printer->text(str_repeat("-", 48) . "\n");
+            // Customer Details with fixed column positions
+            $this->printer->text("Ordered By : " . $data['customer_name']);
+            $this->printer->text(str_pad("Date : " . date('m/d/Y'), 30, " ", STR_PAD_LEFT) . "\n");
+            $this->printer->text("Address    : " . ($data['address'] ?? ''));
+            $this->printer->text(str_pad("Terms: 0 day(s)", 30, " ", STR_PAD_LEFT) . "\n\n");
 
-            // Items
+            // Column Headers with fixed positions for 9.5" width
+            $this->printer->text("Qty         UOM      Desc                                      Amount\n");
+            $this->printer->text("Amount Due\n");
+            $this->printer->text(str_repeat("-", 80) . "\n");
+
+            // Items with fixed column positions
             foreach ($data['items'] as $item) {
-                $this->printer->text(sprintf(
-                    "%-20s %3.1f %6.2f %7.2f\n",
-                    substr($item['sku'], 0, 20),
-                    $item['kilos'],
-                    $item['price_per_kilo'],
-                    $item['total']
-                ));
+                $this->printer->text(
+                    str_pad(number_format($item['kilos'], 2), 12) .
+                    str_pad("KL", 10) .
+                    str_pad($item['sku'], 40) .
+                    str_pad(number_format($item['price_per_kilo'], 2), 18, " ", STR_PAD_LEFT) . "\n" .
+                    str_pad(number_format($item['total'], 2), 12) . "\n"
+                );
             }
 
-            // Totals
-            $this->printer->text(str_repeat("-", 48) . "\n");
-            $this->printer->setJustification(Printer::JUSTIFY_RIGHT);
-            $this->printer->text(sprintf("Subtotal: ₱%.2f\n", $data['subtotal']));
+            // Total aligned with first column
+            $this->printer->text("TOTAL\n");
+            $this->printer->text(str_pad(number_format($data['total_amount'], 2), 12) . "\n\n");
 
-            if ($data['discount_amount'] > 0) {
-                $this->printer->text(sprintf("Discount: ₱%.2f\n", $data['discount_amount']));
-            }
+            // Payment details aligned to the left with fixed spacing
+            $this->printer->text("CASH PAYMENT:\n");
+            $this->printer->text(str_pad(number_format($data['amount_paid'] ?? 0, 2), 12) . "\n");
+            $this->printer->text("CHECK PAYMENT:\n");
+            $this->printer->text(str_pad("0.00", 12) . "\n");
+            $this->printer->text("ONLINE PAYMENT:\n");
+            $this->printer->text(str_pad("0.00", 12) . "\n");
+            $this->printer->text("ADVANCE PAYMENT:\n");
+            $this->printer->text(str_pad("0.00", 12) . "\n");
+            $this->printer->text("REMAINING BALANCE:\n");
+            $this->printer->text(str_pad("0.00", 12) . "\n\n");
 
-            $this->printer->selectPrintMode(Printer::MODE_DOUBLE_WIDTH);
-            $this->printer->text(sprintf("TOTAL: ₱%.2f\n", $data['total_amount']));
-            $this->printer->selectPrintMode();
+            // Confirmation text with proper line breaks for 9.5" width
+            $this->printer->text("I, " . $data['customer_name'] . ", hereby confirm that the item(s) listed above have been recei\n");
+            $this->printer->text("ved in good\n");
+            $this->printer->text("condition and in the quantities stated.\n\n");
 
-            // Payment details
-            switch ($data['payment_type']) {
-                case 'cash':
-                    if (isset($data['amount_paid'])) {
-                        $this->printer->text(sprintf("Cash: ₱%.2f\n", $data['amount_paid']));
-                        $this->printer->text(sprintf("Change: ₱%.2f\n", $data['change_amount']));
-                    }
-                    break;
-                case 'advance_payment':
-                    if (isset($data['used_advance_payment'])) {
-                        $this->printer->text(sprintf("Advance Payment: ₱%.2f\n", $data['used_advance_payment']));
-                    }
-                    break;
-                case 'online':
-                    if (isset($data['reference_number'])) {
-                        $this->printer->text("Online Payment\n");
-                        $this->printer->text("Ref #: " . $data['reference_number'] . "\n");
-                    }
-                    break;
-                default:
-                    $this->printer->text("Payment: " . ucfirst($data['payment_type']) . "\n");
-            }
+            // Signature lines with fixed positions
+            $this->printer->text("Prepared By:" . str_pad("Checked By:", 35, " ", STR_PAD_LEFT) .
+                str_pad("Received By:", 35, " ", STR_PAD_LEFT) . "\n\n");
 
-            // Footer
-            $this->printer->feed(2);
-            $this->printer->setJustification(Printer::JUSTIFY_CENTER);
-            $this->printer->text("Thank you for your business!\n");
-            $this->printer->text("Please come again\n");
+            $this->printer->text("_____________" . str_pad("_____________", 35, " ", STR_PAD_LEFT) .
+                str_pad("_____________", 35, " ", STR_PAD_LEFT) . "\n");
 
-            // Cut receipt
-            $this->printer->cut();
+            $this->printer->text($data['customer_name'] . str_pad("(Signature over printed name)", 35, " ", STR_PAD_LEFT) .
+                str_pad($data['customer_name'], 35, " ", STR_PAD_LEFT) . "\n\n");
+
+            // Footer with fixed positions
+            $this->printer->text("Printed By: " . auth()->user()->name . " " . date('n/j/Y g:i:s A') . "\n");
+            $this->printer->text("Page: 1 of 1\n");
+            $this->printer->text("VA\n");
+
+            // Form feed for continuous paper
+            $this->printer->text("\x0C"); // Form feed
             $this->printer->close();
 
         } catch (Exception $e) {
-            throw new Exception("Print failed: " . $e->getMessage());
+            \Log::error("Print error: " . $e->getMessage());
+            throw $e;
+        }
+    }
+    public function __destruct()
+    {
+        // Ensure printer connection is closed when object is destroyed
+        if ($this->printer !== null) {
+            try {
+                $this->printer->close();
+            } catch (Exception $e) {
+                \Log::error("Error closing printer: " . $e->getMessage());
+            }
         }
     }
 }

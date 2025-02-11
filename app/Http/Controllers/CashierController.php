@@ -266,9 +266,10 @@ class CashierController extends Controller
                 'amount_paid' => $validated['amount_paid'],
                 'change_amount' => max(0, $validated['amount_paid'] - $validated['total_amount']),
                 'remaining_balance' => $remainingBalance,
-                'date' => now(),
+                'date' => now()->setTimezone('Asia/Manila'),
+                'created_at' => now()->setTimezone('Asia/Manila'),
+                'updated_at' => now()->setTimezone('Asia/Manila'),
             ]);
-
             // Create transaction items
             foreach ($validated['items'] as $item) {
                 $transaction->items()->create([
@@ -401,6 +402,7 @@ class CashierController extends Controller
             'advance_payment' => (float) $customer->advance_payment
         ]);
     }
+    // CashierController.php
     public function printReceipt(Request $request)
     {
         try {
@@ -417,25 +419,45 @@ class CashierController extends Controller
                 'subtotal' => 'required|numeric',
                 'discount_amount' => 'required|numeric',
                 'total_amount' => 'required|numeric',
-                'amount_paid' => 'nullable|required_if:payment_type,cash|numeric',
-                'change_amount' => 'nullable|required_if:payment_type,cash|numeric',
-                'used_advance_payment' => 'nullable|required_if:payment_type,advance_payment|numeric',
-                'reference_number' => 'nullable|required_if:payment_type,online|string'
+                'amount_paid' => 'nullable|numeric',
+                'change_amount' => 'nullable|numeric',
+                'used_advance_payment' => 'nullable|numeric',
+                'reference_number' => 'nullable|string'
             ]);
 
-            // Make sure the OrderPrinterService is correctly implemented
+            // Create printer data array with all required fields
+            $printerData = [
+                'receipt_id' => $validated['receipt_id'],
+                'customer_name' => $validated['customer_name'],
+                'service_type' => $validated['service_type'],
+                'payment_type' => $validated['payment_type'],
+                'items' => $validated['items'],
+                'subtotal' => $validated['subtotal'],
+                'discount_amount' => $validated['discount_amount'],
+                'total_amount' => $validated['total_amount'],
+            ];
+
+            // Add conditional payment details based on payment type
+            switch ($validated['payment_type']) {
+                case 'cash':
+                    $printerData['amount_paid'] = $validated['amount_paid'];
+                    $printerData['change_amount'] = $validated['change_amount'];
+                    break;
+                case 'advance_payment':
+                    $printerData['used_advance_payment'] = $validated['used_advance_payment'];
+                    break;
+                case 'online':
+                    $printerData['reference_number'] = $validated['reference_number'];
+                    break;
+            }
+
             $printerService = new OrderPrinterService();
-            $printerService->printReceipt($validated);
+            $printerService->printReceipt($printerData);
 
             return response()->json(['success' => true]);
 
-        } catch (ValidationException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation error',
-                'errors' => $e->errors()
-            ], 422);
         } catch (Exception $e) {
+            \Log::error('Print error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()

@@ -3,11 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\TransactionItemModel;
+use App\Models\CashDenominationModel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class CreportController extends Controller
 {
@@ -29,7 +32,7 @@ class CreportController extends Controller
         $startDateFormatted = $startDate->format('Y-m-d');
         $endDateFormatted = $endDate->format('Y-m-d');
 
-        // Rest of your query logic...
+        // Query builder with date range
         $query = TransactionItemModel::with(['transaction.customer', 'product'])
             ->where('user_id', $userId)
             ->whereBetween('created_at', [$startDate, $endDate]);
@@ -42,7 +45,7 @@ class CreportController extends Controller
 
         $transactionItems = $query->get();
 
-        // Calculate summaries...
+        // Calculate summaries
         $totalItems = $transactionItems->count();
         $totalKilos = $transactionItems->sum('kilos');
         $totalSales = $transactionItems->sum('total');
@@ -65,24 +68,34 @@ class CreportController extends Controller
         try {
             // Get filter parameters and user ID
             $userId = Auth::id();
-            $date = $request->input('date', Carbon::now());
 
-            // Query builder
+            // Get start and end dates from request
+            $startDate = $request->input('start_date')
+                ? Carbon::parse($request->input('start_date'))->startOfDay()
+                : Carbon::now()->startOfDay();
+            $endDate = $request->input('end_date')
+                ? Carbon::parse($request->input('end_date'))->endOfDay()
+                : Carbon::now()->endOfDay();
+            $paymentType = $request->input('payment_type');
+
+            // Query builder with date range
             $query = TransactionItemModel::with(['transaction.customer', 'product'])
                 ->where('user_id', $userId)
-                ->whereDate('created_at', $date);
+                ->whereBetween('created_at', [$startDate, $endDate]);
+
+            if ($paymentType) {
+                $query->whereHas('transaction', function ($q) use ($paymentType) {
+                    $q->where('payment_type', $paymentType);
+                });
+            }
 
             $transactions = $query->get();
 
             // Calculate totals by payment type
-            $totalCashSales = $transactions->where('transaction.payment_type', 'cash')
-                ->sum('total');
-            $totalBalancePayment = $transactions->where('transaction.payment_type', 'debit')
-                ->sum('total');
-            $totalOnlinePayment = $transactions->where('transaction.payment_type', 'online')
-                ->sum('total');
-            $totalCreditCharge = $transactions->where('transaction.payment_type', 'credit')
-                ->sum('total');
+            $totalCashSales = $transactions->where('transaction.payment_type', 'cash')->sum('total');
+            $totalBalancePayment = $transactions->where('transaction.payment_type', 'debit')->sum('total');
+            $totalOnlinePayment = $transactions->where('transaction.payment_type', 'online')->sum('total');
+            $totalCreditCharge = $transactions->where('transaction.payment_type', 'credit')->sum('total');
             $totalSales = $totalCashSales + $totalBalancePayment + $totalOnlinePayment + $totalCreditCharge;
 
             // Create new Spreadsheet
@@ -121,7 +134,14 @@ class CreportController extends Controller
             $sheet->mergeCells('A2:H2');
             $sheet->setCellValue('A2', 'DAILY SALES REPORT');
             $sheet->mergeCells('A3:H3');
-            $sheet->setCellValue('A3', 'DATE: ' . Carbon::parse($date)->format('F d, Y'));
+
+            // Show date range in title
+            if ($startDate->isSameDay($endDate)) {
+                $dateDisplay = 'DATE: ' . $startDate->format('F d, Y');
+            } else {
+                $dateDisplay = 'DATE: ' . $startDate->format('F d, Y') . ' to ' . $endDate->format('F d, Y');
+            }
+            $sheet->setCellValue('A3', $dateDisplay);
 
             // Apply header styles
             $sheet->getStyle('A1:H3')->applyFromArray($headerStyle);
@@ -171,6 +191,12 @@ class CreportController extends Controller
             // Data Rows
             $row = 6;
             foreach ($transactions as $transaction) {
+                // Add borders to all cells in the row
+                $sheet->getStyle('A' . $row . ':H' . $row)->applyFromArray([
+                    'borders' => [
+                        'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                    ],
+                ]);
                 $sheet->setCellValue('A' . $row, $transaction->transaction->customer->FirstName . ' ' .
                     $transaction->transaction->customer->LastName);
                 $sheet->setCellValue('B' . $row, $transaction->transaction->receipt_id);
@@ -218,6 +244,9 @@ class CreportController extends Controller
             $summaryStyle = [
                 'font' => ['bold' => true],
                 'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT],
+                'borders' => [
+                    'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                ],
             ];
 
             $summaryRows = [
@@ -248,11 +277,103 @@ class CreportController extends Controller
             ]);
             $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
 
-            $currentUser = Auth::user();
+            // Add Denomination Section
+            $row += 2;
+            $sheet->mergeCells('A' . $row . ':C' . $row);
+            $sheet->setCellValue('A' . $row, 'DENOMINATION');
+            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+                'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => '4472C4'],
+                ],
+            ]);
 
-            $generatorName = $currentUser->name ?? 'System User';
+            // Denomination headers
+            $row++;
+            $sheet->setCellValue('A' . $row, 'CASH');
+            $sheet->setCellValue('B' . $row, 'PIECES');
+            $sheet->setCellValue('C' . $row, 'TOTAL');
+            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+                'font' => ['bold' => true],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => 'D9D9D9'],
+                ],
+                'borders' => [
+                    'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                ],
+            ]);
+
+            // Get denomination data for the date
+            $denomination = CashDenominationModel::where('user_id', $userId)
+                ->where('count_date', $endDate->format('Y-m-d'))
+                ->first();
+
+            // Denomination values
+            $denominations = [
+                1000 => 'd1000',
+                500 => 'd500',
+                200 => 'd200',
+                100 => 'd100',
+                50 => 'd50',
+                20 => 'd20',
+                10 => 'd10',
+                5 => 'd5',
+                1 => 'd1',
+                0.25 => 'd025'
+            ];
+
+            foreach ($denominations as $value => $field) {
+                $row++;
+                $pieces = $denomination ? $denomination->$field : 0;
+                $total = $value * $pieces;
+
+                // Add borders to denomination rows
+                $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+                    'borders' => [
+                        'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                    ],
+                ]);
+
+                $sheet->setCellValue('A' . $row, $value);
+                $sheet->setCellValue('B' . $row, $pieces);
+                $sheet->setCellValue('C' . $row, $total);
+
+                $sheet->getStyle('A' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('C' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            }
+
+            // Online amount
+            $row++;
+            $sheet->mergeCells('A' . $row . ':B' . $row);
+            $sheet->setCellValue('A' . $row, 'ONLINE:');
+            $sheet->setCellValue('C' . $row, $denomination ? $denomination->online_amount : 0);
+            $sheet->getStyle('C' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+                'borders' => [
+                    'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                ],
+            ]);
+
+            // Total
+            $row++;
+            $sheet->mergeCells('A' . $row . ':B' . $row);
+            $sheet->setCellValue('A' . $row, 'TOTAL:');
+            $sheet->setCellValue('C' . $row, $denomination ? $denomination->total_amount : 0);
+            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+                'font' => ['bold' => true],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => 'FFFF00'],
+                ],
+            ]);
+            $sheet->getStyle('C' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
 
             // Add Generated By section
+            $currentUser = Auth::user();
+            $generatorName = $currentUser->name ?? 'System User';
+
             $row += 2;
             $sheet->setCellValue('A' . $row, 'Generated by: ' . $generatorName);
             $sheet->mergeCells('A' . $row . ':C' . $row);
@@ -270,21 +391,111 @@ class CreportController extends Controller
                 'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT],
             ]);
 
-            // Set headers for download
-            header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            $lastName = $currentUser->name ?? 'Unknown';  // Changed to match your DB convention (LastName)
-            $reportDate = Carbon::parse($date)->format('Y-m-d');
+            // Create filename with date range
+            if ($startDate->isSameDay($endDate)) {
+                $dateForFilename = $startDate->format('Y-m-d');
+            } else {
+                $dateForFilename = $startDate->format('Y-m-d') . '_to_' .
+                    $endDate->format('Y-m-d');
+            }
             $timestamp = Carbon::now()->format('H-i-s');
-            header('Content-Disposition: attachment;filename="daily_sales_report_' . $lastName . '_' . $reportDate . '_' . $timestamp . '.xlsx"');
-            header('Cache-Control: max-age=0');
 
+            $filename = "daily_sales_report_{$generatorName}_{$dateForFilename}_{$timestamp}.xlsx";
+
+            // Buffer the output
+            ob_start();
             $writer = new Xlsx($spreadsheet);
             $writer->save('php://output');
-            exit();
+            $content = ob_get_contents();
+            ob_end_clean();
+
+            return response($content)
+                ->header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                ->header('Content-Disposition', 'attachment; filename="' . $filename . '"')
+                ->header('Cache-Control', 'max-age=0');
 
         } catch (\Exception $e) {
             \Log::error('Export error: ' . $e->getMessage());
             return redirect()->back()->with('error', 'Failed to generate report. Please try again.');
         }
     }
+    public function storeDenomination(Request $request)
+    {
+        try {
+            $request->validate([
+                'count_date' => 'required|date',
+                'd1000' => 'required|integer|min:0',
+                'd500' => 'required|integer|min:0',
+                'd200' => 'required|integer|min:0',
+                'd100' => 'required|integer|min:0',
+                'd50' => 'required|integer|min:0',
+                'd20' => 'required|integer|min:0',
+                'd10' => 'required|integer|min:0',
+                'd5' => 'required|integer|min:0',
+                'd1' => 'required|integer|min:0',
+                'd025' => 'required|integer|min:0',
+                'online_amount' => 'required|numeric|min:0'
+            ]);
+
+            $cashTotal =
+                ($request->d1000 * 1000) +
+                ($request->d500 * 500) +
+                ($request->d200 * 200) +
+                ($request->d100 * 100) +
+                ($request->d50 * 50) +
+                ($request->d20 * 20) +
+                ($request->d10 * 10) +
+                ($request->d5 * 5) +
+                ($request->d1 * 1) +
+                ($request->d025 * 0.25);
+
+            $totalAmount = $cashTotal + $request->online_amount;
+
+            $denomination = CashDenominationModel::updateOrCreate(
+                [
+                    'user_id' => Auth::id(),
+                    'count_date' => $request->count_date,
+                ],
+                [
+                    'd1000' => $request->d1000,
+                    'd500' => $request->d500,
+                    'd200' => $request->d200,
+                    'd100' => $request->d100,
+                    'd50' => $request->d50,
+                    'd20' => $request->d20,
+                    'd10' => $request->d10,
+                    'd5' => $request->d5,
+                    'd1' => $request->d1,
+                    'd025' => $request->d025,
+                    'online_amount' => $request->online_amount,
+                    'total_amount' => $totalAmount
+                ]
+            );
+
+            return response()->json([
+                'success' => true,
+                'cash_total' => $cashTotal,
+                'total_amount' => $totalAmount,
+                'denomination' => $denomination
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error saving denomination count'
+            ], 500);
+        }
+    }
+    public function denominationIndex()
+    {
+        $userId = Auth::id();
+        $today = Carbon::now()->format('Y-m-d');
+
+        $denomination = CashDenominationModel::where('user_id', $userId)
+            ->where('count_date', $today)
+            ->first();
+
+        return view('cashier.pages.denomination.index', compact('denomination'));
+    }
+
 }

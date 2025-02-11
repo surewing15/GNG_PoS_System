@@ -118,7 +118,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                {{-- <a href="/cashier/trucking/create" class="btn btn-dark">Deliver</a> --}}
+
 
                 <button type="button" class="btn btn-success" onclick="confirmPayment()">Confirm</button>
                 <button type="button" class="btn btn-primary print-receipt">
@@ -427,25 +427,24 @@
                         '.receipt-total .mb-2:nth-child(2) span').textContent.replace(
                         '₱', '')),
                     total_amount: parseFloat(document.querySelector(
-                        '.receipt-total .fw-bold span').textContent.replace('₱', ''))
+                        '.receipt-total .fw-bold span').textContent.replace('₱', '')),
+                    // Add payment-specific fields
+                    amount_paid: document.getElementById('amount-paid').value ? parseFloat(
+                        document.getElementById('amount-paid').value) : null,
+                    change_amount: document.getElementById('change-amount').value ? parseFloat(
+                        document.getElementById('change-amount').value) : null,
+                    used_advance_payment: document.getElementById('advanceToUse') ? parseFloat(
+                        document.getElementById('advanceToUse').textContent.replace('₱', '')
+                        ) : null,
+                    reference_number: document.getElementById('reference-number') ? document
+                        .getElementById('reference-number').value : null
                 };
 
-                // Add payment-specific data
-                switch (receiptData.payment_type) {
-                    case 'cash':
-                        receiptData.amount_paid = parseFloat(document.getElementById('amount-paid')
-                            .value);
-                        receiptData.change_amount = parseFloat(document.getElementById(
-                            'change-amount').value);
-                        break;
-                    case 'advance_payment':
-                        receiptData.used_advance_payment = parseFloat(document.getElementById(
-                            'advanceToUse').textContent.replace('₱', ''));
-                        break;
-                    case 'online':
-                        receiptData.reference_number = document.getElementById('reference-number')
-                            .value;
-                        break;
+                if (receiptData.payment_type === 'cash') {
+                    receiptData.amount_paid = parseFloat(document.getElementById('amount-paid')
+                        .value);
+                    receiptData.change_amount = parseFloat(document.getElementById('change-amount')
+                        .value);
                 }
 
                 const response = await fetch('/cashier/print-receipt', {
@@ -458,15 +457,14 @@
                     body: JSON.stringify(receiptData)
                 });
 
+                if (!response.ok) throw new Error('Print failed');
+
                 const result = await response.json();
-                if (!result.success) {
-                    throw new Error(result.message || 'Print failed');
-                }
+                if (!result.success) throw new Error(result.message);
 
                 Swal.fire({
                     icon: 'success',
-                    title: 'Success',
-                    text: 'Receipt printed successfully'
+                    title: 'Receipt printed successfully'
                 });
 
             } catch (error) {
@@ -474,11 +472,10 @@
                 Swal.fire({
                     icon: 'error',
                     title: 'Print Error',
-                    text: error.message || 'Failed to print receipt'
+                    text: error.message
                 });
             }
         });
-
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
                 const modal = bootstrap.Modal.getInstance(invoiceModal);
@@ -711,7 +708,7 @@
                 let message = `Payment successful! Transaction ID: ${result.transaction_id}`;
                 if (remainingBalance > 0) {
                     message +=
-                    `\n₱${remainingBalance.toFixed(2)} has been added to customer's balance.`;
+                        `\n₱${remainingBalance.toFixed(2)} has been added to customer's balance.`;
                 }
 
                 // Close modal and reset UI

@@ -16,7 +16,7 @@
         <div class="nk-sidebar-brand">
             <a href="/dashboard" class="logo-link nk-sidebar-logo">
 
-                <img class="logo-dark" style="height: 70px;" src="{{ asset('/storage/logo.png') }}" alt="logo">
+                <img class="logo-dark" style="height: 70px;" src="{{ asset('images/logo.png') }}" alt="logo">
 
             </a>
         </div>
@@ -30,7 +30,14 @@
                 <ul class="nk-menu">
                     <!-- Menu Heading -->
 
-
+                    @if (Auth::user()->role == 'Superadmin')
+                        <li class="nk-menu-item">
+                            <a href="/super/admin/dashboard" class="nk-menu-link">
+                                <span class="nk-menu-icon"><em class="icon ni ni-dashboard-fill"></em></span>
+                                <span class="nk-menu-text">Dashboard</span>
+                            </a>
+                        </li>
+                    @endif
                     @if (Auth::user()->role == 'Administrator')
                         <li class="nk-menu-heading pt-0">
                             <h6 class="overline-title text-primary-alt">Menu</h6>
@@ -167,7 +174,7 @@
                             </a>
                         </li>
                         <li class="nk-menu-item">
-                            <a href="/expired/products" class="nk-menu-link">
+                            <a href="/stock/history" class="nk-menu-link">
                                 <span class="nk-menu-icon"><em class="icon ni ni-package-fill"></em></span>
                                 <span class="nk-menu-text">Stock Report</span>
                             </a>
@@ -230,12 +237,12 @@
                                 <span class="nk-menu-text">Report</span>
                             </a>
                         </li>
-                        {{-- <li class="nk-menu-item">
-                            <a href="/cashier/collection" class="nk-menu-link">
-                                <span class="nk-menu-icon"><em class="icon ni ni-wallet-fill"></em></span>
-                                <span class="nk-menu-text">Collection</span>
+                        <li class="nk-menu-item">
+                            <a href="/cashier/denomination" class="nk-menu-link">
+                                <span class="nk-menu-icon"><em class="icon ni ni-money"></em></span>
+                                <span class="nk-menu-text">Denomination Count</span>
                             </a>
-                        </li> --}}
+                        </li>
                     @endif
 
                     <!-- Add more menu items here -->

@@ -119,7 +119,7 @@
                         <tbody>
                             @foreach ($transactionItems as $item)
                                 <tr>
-                                    <td>{{ Carbon\Carbon::parse($item->created_at)->format('M d, Y H:i') }}</td>
+                                    <td>{{ Carbon\Carbon::parse($item->date)->format('M d, Y ') }}</td>
                                     <td>{{ $item->transaction->receipt_id }}</td>
                                     <td>{{ $item->product->product_sku }}</td>
                                     <td>{{ number_format($item->kilos, 2) }}</td>
@@ -160,15 +160,28 @@
             $('.date-picker').datepicker({
                 format: 'yyyy-mm-dd',
                 autoclose: true,
-                todayHighlight: true
+                todayHighlight: true,
+                // Add an onSelect event handler
+                onSelect: function(dateStr) {
+                    // Update the corresponding form input
+                    $('input[name="start_date"]').val(dateStr);
+                    $('input[name="end_date"]').val(dateStr);
+                }
             });
         });
 
         function exportReport() {
             // Get the filter values
-            const startDate = document.querySelector('input[name="start_date"]').value;
-            const endDate = document.querySelector('input[name="end_date"]').value;
+            let startDate = document.querySelector('input[name="start_date"]').value;
+            let endDate = document.querySelector('input[name="end_date"]').value;
             const paymentType = document.querySelector('select[name="payment_type"]').value;
+
+            // If using the single datepicker, get its value
+            const datepickerValue = document.getElementById('datepicker').value;
+            if (datepickerValue) {
+                startDate = datepickerValue;
+                endDate = datepickerValue;
+            }
 
             // Validate dates
             if (!startDate || !endDate) {
