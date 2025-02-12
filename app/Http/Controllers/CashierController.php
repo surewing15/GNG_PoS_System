@@ -49,6 +49,7 @@ class CashierController extends Controller
                     'description' => $firstStock->product->p_description ?? '',
                     'price' => $firstStock->price ?? 0,
                     'stock_kilos' => $stocks->sum('total_all_kilos'),
+                    'dr' => $firstStock->dr ?? '',
                     'created_at' => $firstStock->created_at,
                     'img' => $firstStock->product->img ?? '',
                 ];
@@ -140,9 +141,12 @@ class CashierController extends Controller
         foreach ($validated['items'] as $item) {
             $transaction->items()->create([
                 'product_id' => $item['product_id'],
+                'user_id' => Auth::id(),
                 'kilos' => $item['kilos'],
+                'head' => $item['head'] ?? 0,
+                'dr' => $item['dr'] ?? '',
                 'price_per_kilo' => $item['price_per_kilo'],
-                'total' => $item['kilos'] * $item['price_per_kilo']
+                'total' => $item['total']  // The issue is here
             ]);
         }
 
@@ -182,102 +186,91 @@ class CashierController extends Controller
         return response()->json(['receipt_id' => $receiptId]);
     }
 
+
+
     public function saveTransaction(Request $request)
     {
         try {
-            $userId = Auth::id();
-            if (!$userId) {
-                throw new \Exception('User not authenticated');
-            }
+            DB::beginTransaction();
 
-            // Validate the request
+            \Log::info('Transaction request data:', $request->all());
+
             $validated = $request->validate([
                 'customer_id' => 'required|exists:tbl_customers,CustomerID',
                 'service_type' => 'required|string',
-                'payment_type' => 'required|string|in:cash,debit,online,advance_payment',
+                'payment_type' => 'required|string',
                 'items' => 'required|array',
-                'items.*.product_id' => 'required|integer',
-                'items.*.kilos' => 'required|numeric|min:0.1',
-                'items.*.price_per_kilo' => 'required|numeric|min:0',
-                'items.*.total' => 'required|numeric|min:0',
-                'subtotal' => 'required|numeric|min:0',
-                'discount_percentage' => 'required|numeric|min:0|max:100',
-                'discount_amount' => 'required|numeric|min:0',
                 'total_amount' => 'required|numeric|min:0',
-                'receipt_id' => 'required|string|unique:tbl_transactions,receipt_id',
                 'amount_paid' => 'required|numeric|min:0',
+                'subtotal' => 'required|numeric|min:0',
+                'discount_percentage' => 'required|numeric|min:0',
+                'discount_amount' => 'required|numeric|min:0'
             ]);
 
-            DB::beginTransaction();
-
-            // Get customer record with lock
+            // Get customer with lock for update
             $customer = CustomerModel::lockForUpdate()->find($validated['customer_id']);
             if (!$customer) {
                 throw new \Exception('Customer not found');
             }
 
-            // Calculate remaining balance
-            $remainingBalance = $validated['total_amount'] - $validated['amount_paid'];
+            // Calculate credit charge explicitly
+            $creditCharge = $validated['total_amount'] - $validated['amount_paid'];
+            $creditCharge = max(0, $creditCharge); // Ensure it's not negative
 
-            // Update customer balance
-            if ($remainingBalance > 0) {
-                $customer->Balance += $remainingBalance;
+            \Log::info('Credit charge calculation:', [
+                'total_amount' => $validated['total_amount'],
+                'amount_paid' => $validated['amount_paid'],
+                'credit_charge' => $creditCharge
+            ]);
+
+            // Update customer balance if there's a credit charge
+            if ($creditCharge > 0) {
+                $oldBalance = $customer->Balance;
+                $customer->Balance += $creditCharge;
                 $customer->save();
+
+                \Log::info('Updated customer balance:', [
+                    'customer_id' => $customer->CustomerID,
+                    'old_balance' => $oldBalance,
+                    'credit_charge' => $creditCharge,
+                    'new_balance' => $customer->Balance
+                ]);
             }
 
-            // Handle advance payment if applicable
-            if ($validated['payment_type'] === 'advance_payment') {
-                if ($customer->advance_payment < $validated['used_advance_payment']) {
-                    throw new \Exception('Insufficient advance payment balance');
-                }
-                $customer->advance_payment -= $validated['used_advance_payment'];
-                $customer->save();
-            }
-
-            // Update stock levels first
-            foreach ($validated['items'] as $item) {
-                $masterStock = MasterStockModel::lockForUpdate()->where('product_id', $item['product_id'])->first();
-
-                if (!$masterStock) {
-                    throw new \Exception("Stock not found for product ID: {$item['product_id']}");
-                }
-
-                if ($masterStock->total_all_kilos < $item['kilos']) {
-                    throw new \Exception("Insufficient stock for product ID: {$item['product_id']}. Available: {$masterStock->total_all_kilos}, Requested: {$item['kilos']}");
-                }
-
-                $masterStock->total_all_kilos -= $item['kilos'];
-                $masterStock->save();
-            }
-
-            // Create the transaction
-            $transaction = TransactionModel::create([
+            // Create transaction record with credit_charge
+            $transactionData = [
                 'CustomerID' => $validated['customer_id'],
-                'user_id' => $userId,
+                'user_id' => Auth::id(),
                 'service_type' => $validated['service_type'],
                 'payment_type' => $validated['payment_type'],
                 'subtotal' => $validated['subtotal'],
                 'discount_percentage' => $validated['discount_percentage'],
                 'discount_amount' => $validated['discount_amount'],
                 'total_amount' => $validated['total_amount'],
-                'receipt_id' => $validated['receipt_id'],
-                'status' => $validated['service_type'] === 'deliver' ? 'Not Assigned' : null,
-                'used_advance_payment' => $validated['payment_type'] === 'advance_payment' ? $validated['used_advance_payment'] : 0,
                 'amount_paid' => $validated['amount_paid'],
-                'change_amount' => max(0, $validated['amount_paid'] - $validated['total_amount']),
-                'remaining_balance' => $remainingBalance,
+                'credit_charge' => $creditCharge, // Add the credit charge
+                'change_amount' => 0,
+                'receipt_id' => $request->receipt_id,
+                'status' => $validated['service_type'] === 'deliver' ? 'Not Assigned' : null,
                 'date' => now()->setTimezone('Asia/Manila'),
                 'created_at' => now()->setTimezone('Asia/Manila'),
-                'updated_at' => now()->setTimezone('Asia/Manila'),
-            ]);
+                'updated_at' => now()->setTimezone('Asia/Manila')
+            ];
+
+            \Log::info('Creating transaction with data:', $transactionData);
+
+            $transaction = TransactionModel::create($transactionData);
+
             // Create transaction items
             foreach ($validated['items'] as $item) {
                 $transaction->items()->create([
                     'product_id' => $item['product_id'],
-                    'user_id' => $userId,
+                    'user_id' => Auth::id(),
                     'kilos' => $item['kilos'],
+                    'head' => $item['head'] ?? 0,
+                    'dr' => $item['dr'] ?? '',
                     'price_per_kilo' => $item['price_per_kilo'],
-                    'total' => $item['total']
+                    'total' => $item['total']  // The issue is here
                 ]);
             }
 
@@ -286,8 +279,7 @@ class CashierController extends Controller
             return response()->json([
                 'success' => true,
                 'transaction_id' => $transaction->id,
-                'receipt_id' => $validated['receipt_id'],
-                'added_to_balance' => $remainingBalance > 0 ? $remainingBalance : 0
+                'credit_charge_added' => $creditCharge
             ]);
 
         } catch (\Exception $e) {

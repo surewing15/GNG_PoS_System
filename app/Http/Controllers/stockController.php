@@ -26,54 +26,49 @@ class stockController extends Controller
             'cart' => 'required|array',
             'cart.*.product_id' => 'required|exists:tbl_product,product_id',
             'cart.*.kilos' => 'required|numeric|min:0',
+            'cart.*.head' => 'required|integer|min:0',
             'cart.*.price' => 'required|numeric|min:0',
+            'dr' => 'required|string|max:50'
         ]);
 
         try {
             DB::beginTransaction();
+            $drNumber = $request->input('dr');
+            $currentDate = now();
 
             foreach ($request->input('cart') as $item) {
-                $productId = $item['product_id'];
-                $kilos = $item['kilos'];
-                $price = $item['price'];
-                $currentDate = now()->toDateString();
+                // Create new stock entry
+                StockModel::create([
+                    'product_id' => $item['product_id'],
+                    'stock_kilos' => $item['kilos'],
+                    'head' => $item['head'],
+                    'price' => $item['price'],
+                    'dr' => $drNumber
+                ]);
 
-                // Check if a record exists with the same product_id, price, and date in StockModel
-                $existingStock = StockModel::where('product_id', $productId)
-                    ->where('price', $price)
-                    ->whereDate('created_at', $currentDate)
+                // Check if master stock entry exists for this product and date
+                $masterStock = MasterStockModel::where('product_id', $item['product_id'])
+                    ->whereDate('created_at', $currentDate->toDateString())
                     ->first();
 
-                if ($existingStock) {
-                    // Update existing stock
-                    $existingStock->stock_kilos += $kilos;
-                    $existingStock->save();
+                if ($masterStock) {
+                    // Update existing master stock
+                    $masterStock->total_all_kilos += $item['kilos'];
+                    $masterStock->total_head += $item['head'];
+                    // Only update price if it's different
+                    if ($masterStock->price != $item['price']) {
+                        $masterStock->price = $item['price'];
+                    }
+                    $masterStock->dr = $drNumber; // Update DR
+                    $masterStock->save();
                 } else {
-                    // Create a new stock entry
-                    StockModel::create([
-                        'product_id' => $productId,
-                        'stock_kilos' => $kilos,
-                        'price' => $price,
-                    ]);
-                }
-
-                // Update the MasterStockModel
-                $existingMasterStock = MasterStockModel::where('product_id', $productId)
-                    ->where('price', $price)
-                    ->whereDate('created_at', $currentDate)
-                    ->first();
-
-                if ($existingMasterStock) {
-                    // Combine with existing MasterStock entry
-                    $existingMasterStock->total_all_kilos += $kilos;
-                    $existingMasterStock->save();
-                } else {
-                    // Create a new MasterStock entry for a different price or date
+                    // Create new master stock entry
                     MasterStockModel::create([
-                        'product_id' => $productId,
-                        'total_all_kilos' => $kilos,
-                        'price' => $price,
-                        'created_at' => $currentDate,
+                        'product_id' => $item['product_id'],
+                        'total_all_kilos' => $item['kilos'],
+                        'total_head' => $item['head'],
+                        'price' => $item['price'],
+                        'dr' => $drNumber
                     ]);
                 }
             }
@@ -90,8 +85,6 @@ class stockController extends Controller
             ], 500);
         }
     }
-
-
 
     public function updatePrice(Request $request, $master_stock_id)
     {

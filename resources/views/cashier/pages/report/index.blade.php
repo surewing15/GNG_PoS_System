@@ -35,7 +35,7 @@
             </div>
         </div>
 
-        <div class="card mb-4">
+        {{-- <div class="card mb-4">
             <div class="card-body">
                 <form method="GET" action="/cashier/report" class="row g-3">
                     <div class="col-md-4">
@@ -60,10 +60,10 @@
                     </div>
                 </form>
             </div>
-        </div>
+        </div> --}}
 
 
-        <div class="row mb-4">
+        {{-- <div class="row mb-4">
             <div class="col-md-3">
                 <div class="card bg-primary text-white">
                     <div class="card-body">
@@ -96,7 +96,7 @@
                     </div>
                 </div>
             </div>
-        </div>
+        </div> --}}
 
         <!-- Transactions Table -->
         <div class="card">

@@ -79,7 +79,21 @@ class CreportController extends Controller
             $paymentType = $request->input('payment_type');
 
             // Query builder with date range
-            $query = TransactionItemModel::with(['transaction.customer', 'product'])
+            $query = TransactionItemModel::with([
+                'transaction' => function ($query) {
+                    $query->select(
+                        'transaction_id',
+                        'credit_charge',
+                        'payment_type',
+                        'receipt_id',
+                        'CustomerID',
+                        'created_at',
+                        'total_amount'  // Add total_amount
+                    );
+                },
+                'transaction.customer',
+                'product'
+            ])
                 ->where('user_id', $userId)
                 ->whereBetween('created_at', [$startDate, $endDate]);
 
@@ -91,13 +105,49 @@ class CreportController extends Controller
 
             $transactions = $query->get();
 
-            // Calculate totals by payment type
-            $totalCashSales = $transactions->where('transaction.payment_type', 'cash')->sum('total');
-            $totalBalancePayment = $transactions->where('transaction.payment_type', 'debit')->sum('total');
-            $totalOnlinePayment = $transactions->where('transaction.payment_type', 'online')->sum('total');
-            $totalCreditCharge = $transactions->where('transaction.payment_type', 'credit')->sum('total');
-            $totalSales = $totalCashSales + $totalBalancePayment + $totalOnlinePayment + $totalCreditCharge;
+            $balancePayments = DB::table('tbl_payment')
+                ->join('tbl_customers', 'tbl_payment.customer_id', '=', 'tbl_customers.CustomerID')
+                ->whereBetween('payment_date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
+                ->select(
+                    'tbl_customers.FirstName',
+                    'tbl_customers.LastName',
+                    'tbl_customers.CustomerID',
+                    'tbl_payment.id as receipt_id',
+                    'tbl_payment.amount',
+                    'tbl_payment.payment_date'
+                )
+                ->get();
 
+            // Calculate totals by payment type
+            $totalCashSales = $transactions
+                ->where('transaction.payment_type', 'cash')
+                ->map(function ($transaction) {
+                    return $transaction->transaction->credit_charge > 0
+                        ? $transaction->total - $transaction->transaction->credit_charge
+                        : $transaction->total;
+                })
+                ->sum();
+            $totalBalancePayment = $balancePayments->sum('amount');
+            $totalOnlinePayment = $transactions->where('transaction.payment_type', 'online')->sum('total');
+            // Modified credit charge calculation to group by transaction first
+            $creditTransactions = $transactions->where('transaction.payment_type', 'credit')
+                ->groupBy('transaction.transaction_id')
+                ->map(function ($items) {
+                    $transaction = $items->first()->transaction;
+                    return $transaction->credit_charge ?? $items->sum('total');
+                });
+            $totalCreditCharge = $transactions->filter(function ($transaction) {
+                return $transaction->transaction->payment_type === 'credit' ||
+                    ($transaction->transaction->credit_charge && $transaction->transaction->credit_charge > 0);
+            })->groupBy('transaction.transaction_id')
+                ->map(function ($group) {
+                    $firstTransaction = $group->first()->transaction;
+                    return $firstTransaction->credit_charge ?? $group->sum('total');
+                })->sum();
+
+
+            // Calculate total sales after regrouping credit charges
+            $totalSales = $totalCashSales + $totalBalancePayment + $totalOnlinePayment;
             // Create new Spreadsheet
             $spreadsheet = new Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
@@ -189,38 +239,72 @@ class CreportController extends Controller
             ]);
 
             // Data Rows
+            // Data Rows
             $row = 6;
             foreach ($transactions as $transaction) {
-                // Add borders to all cells in the row
                 $sheet->getStyle('A' . $row . ':H' . $row)->applyFromArray([
                     'borders' => [
                         'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
                     ],
                 ]);
+
                 $sheet->setCellValue('A' . $row, $transaction->transaction->customer->FirstName . ' ' .
                     $transaction->transaction->customer->LastName);
                 $sheet->setCellValue('B' . $row, $transaction->transaction->receipt_id);
 
-                // Set amount in appropriate column based on payment type
+                // Check payment type first
                 switch ($transaction->transaction->payment_type) {
                     case 'cash':
-                        $sheet->setCellValue('C' . $row, $transaction->total);
-                        break;
-                    case 'debit':
-                        $sheet->setCellValue('D' . $row, $transaction->total);
+                        // If there's a credit charge, reduce the cash sale amount by the credit charge
+                        $cashAmount = $transaction->transaction->credit_charge > 0
+                            ? $transaction->total - $transaction->transaction->credit_charge
+                            : $transaction->total;
+
+                        $sheet->setCellValue('C' . $row, $cashAmount);
+
+                        // Set credit charge if present
+                        if ($transaction->transaction->credit_charge > 0) {
+                            $sheet->setCellValue('F' . $row, $transaction->transaction->credit_charge);
+                        }
                         break;
                     case 'online':
                         $sheet->setCellValue('E' . $row, $transaction->total);
+                        // Check if online transaction has credit charge
+                        if ($transaction->transaction->credit_charge > 0) {
+                            $sheet->setCellValue('F' . $row, $transaction->transaction->credit_charge);
+                        }
+                        break;
+                    case 'debit':
+                        // For debit, only show in CREDIT/CHARGE column
+                        $sheet->setCellValue('F' . $row, $transaction->total);
                         break;
                     case 'credit':
-                        $sheet->setCellValue('F' . $row, $transaction->total);
+                        $sheet->setCellValue('F' . $row, $transaction->transaction->credit_charge ?? $transaction->total);
                         break;
                 }
 
                 $sheet->setCellValue('G' . $row, $transaction->remarks ?? '');
                 $sheet->setCellValue('H' . $row, Carbon::parse($transaction->created_at)->format('M d, Y'));
 
-                // Apply number format to amount columns
+                $sheet->getStyle('C' . $row . ':F' . $row)->getNumberFormat()
+                    ->setFormatCode('#,##0.00');
+
+                $row++;
+            }
+
+            foreach ($balancePayments as $payment) {
+                $sheet->getStyle('A' . $row . ':H' . $row)->applyFromArray([
+                    'borders' => [
+                        'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                    ],
+                ]);
+
+                $sheet->setCellValue('A' . $row, $payment->FirstName . ' ' . $payment->LastName);
+                $sheet->setCellValue('B' . $row, 'PMT-' . str_pad($payment->receipt_id, 5, '0', STR_PAD_LEFT));
+                $sheet->setCellValue('D' . $row, $payment->amount);
+                $sheet->setCellValue('G' . $row, 'Balance Payment');
+                $sheet->setCellValue('H' . $row, Carbon::parse($payment->payment_date)->format('M d, Y'));
+
                 $sheet->getStyle('C' . $row . ':F' . $row)->getNumberFormat()
                     ->setFormatCode('#,##0.00');
 
@@ -250,19 +334,42 @@ class CreportController extends Controller
             ];
 
             $summaryRows = [
-                'Total Cash Sales:' => $totalCashSales,
-                'Total Balance Payment:' => $totalBalancePayment,
-                'Total Online Payment:' => $totalOnlinePayment,
-                'Total Credit/Charge:' => $totalCreditCharge,
+                ['label' => 'Total Cash Sales:', 'value' => $totalCashSales, 'isCredit' => false],
+                ['label' => 'Total Balance Payment:', 'value' => $totalBalancePayment, 'isCredit' => false],
+                ['label' => 'Total Online Payment:', 'value' => $totalOnlinePayment, 'isCredit' => false],
+                ['label' => 'Total Credit/Charge:', 'value' => $totalCreditCharge, 'isCredit' => true],
             ];
 
-            foreach ($summaryRows as $label => $value) {
-                $sheet->setCellValue('A' . $row, $label);
-                $sheet->setCellValue('B' . $row, $value);
-                $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray($summaryStyle);
+            foreach ($summaryRows as $summaryRow) {
+                $sheet->setCellValue('A' . $row, $summaryRow['label']);
+                $sheet->setCellValue('B' . $row, $summaryRow['value']);
+
+                if ($summaryRow['isCredit']) {
+                    // Special styling for credit/charge amount with red font
+                    $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray([
+                        'font' => [
+                            'bold' => true,
+                            'color' => ['rgb' => 'FF0000'], // Red color
+                        ],
+                        'alignment' => [
+                            'horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT
+                        ],
+                        'borders' => [
+                            'allBorders' => [
+                                'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN
+                            ],
+                        ],
+                    ]);
+                } else {
+                    // Regular summary styling for non-credit rows
+                    $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray($summaryStyle);
+                }
+
                 $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
                 $row++;
             }
+
+
 
             // Total Sales (with yellow background)
             $sheet->setCellValue('A' . $row, 'Total Sales:');
@@ -415,7 +522,9 @@ class CreportController extends Controller
                 ->header('Cache-Control', 'max-age=0');
 
         } catch (\Exception $e) {
-            \Log::error('Export error: ' . $e->getMessage());
+            \Log::error('Export error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
             return redirect()->back()->with('error', 'Failed to generate report. Please try again.');
         }
     }

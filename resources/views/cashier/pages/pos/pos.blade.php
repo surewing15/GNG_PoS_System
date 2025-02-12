@@ -24,18 +24,15 @@
                                     <thead style="background-color: #2c3e50;">
                                         <tr>
                                             <th scope="col" style="text-align: center; width: 15%; color: #FFA500;">
-                                                SKU
-                                            </th>
+                                                SKU</th>
                                             <th scope="col" style="text-align: center; width: 15%; color: #FFA500;">
-                                                KILOS
-                                            </th>
+                                                KILOS</th>
                                             <th scope="col" style="text-align: center; width: 10%; color: #FFA500;">
-                                                PRICE
-                                            </th>
+                                                HEAD</th>
                                             <th scope="col" style="text-align: center; width: 10%; color: #FFA500;">
-                                                SUB-TOTAL
-                                            </th>
-
+                                                PRICE</th>
+                                            <th scope="col" style="text-align: center; width: 10%; color: #FFA500;">
+                                                SUB-TOTAL</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -253,6 +250,12 @@
                                             id="edit-available-stock">0</span> kg</small>
                                 </div>
                                 <div class="mb-3">
+                                    <label for="edit-head" class="form-label">Head Count</label>
+                                    <input type="number" class="form-control" id="edit-head" min="0"
+                                        step="1" required>
+                                    <small class="text-muted">Number of heads (if applicable)</small>
+                                </div>
+                                <div class="mb-3">
                                     <label for="edit-price" class="form-label">Price per Kilo (₱)</label>
                                     <input type="number" class="form-control" id="edit-price" min="0"
                                         step="0.01" required>
@@ -266,6 +269,8 @@
                     </div>
                 </div>
             </div>
+
+
             <!-- Keyboard Shortcuts Legend Modal -->
             <div class="modal fade" id="shortcutsModal" tabindex="-1" aria-labelledby="shortcutsModalLabel"
                 aria-hidden="true">
@@ -469,6 +474,7 @@
 
                 function handleConfirmation() {
                     const kilos = parseFloat(document.getElementById('edit-kilos').value);
+                    const head = parseInt(document.getElementById('edit-head').value) || 0;
                     const price = parseFloat(document.getElementById('edit-price').value);
                     const availableStock = parseFloat(document.getElementById('edit-available-stock').textContent);
 
@@ -491,6 +497,15 @@
                         return;
                     }
 
+                    if (isNaN(head) || head < 0) {
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Invalid Head Count',
+                            text: 'Please enter a valid head count (0 or greater).'
+                        });
+                        return;
+                    }
+
                     if (isNaN(price) || price <= 0) {
                         Swal.fire({
                             icon: 'error',
@@ -503,6 +518,7 @@
                     // Update the product with edited values
                     if (currentProduct) {
                         currentProduct.stock_kilos = kilos;
+                        currentProduct.head = head;
                         currentProduct.price = price;
                         addToCartFinal(currentProduct);
 
@@ -516,25 +532,22 @@
                     }
                 }
 
-                // Single event listener for confirm button
+                // Event listeners setup
                 document.getElementById('confirmEdit').addEventListener('click', handleConfirmation);
 
-                // Handle Enter key on the form - prevent default form submission
+                // Handle Enter key on the form
                 document.getElementById('editItemForm').addEventListener('keydown', function(event) {
                     if (event.key === 'Enter') {
                         event.preventDefault();
-                        event.stopPropagation();
                         handleConfirmation();
                     }
                 });
 
                 // Prevent Enter key from bubbling up on input fields
-                const editInputs = ['edit-sku', 'edit-kilos', 'edit-price'];
-                editInputs.forEach(inputId => {
+                ['edit-sku', 'edit-kilos', 'edit-head', 'edit-price'].forEach(inputId => {
                     document.getElementById(inputId).addEventListener('keydown', function(event) {
                         if (event.key === 'Enter') {
                             event.preventDefault();
-                            event.stopPropagation();
                             handleConfirmation();
                         }
                     });
@@ -548,6 +561,7 @@
                 // Populate the modal with product details
                 document.getElementById('edit-sku').value = product.product_sku;
                 document.getElementById('edit-kilos').value = "1";
+                document.getElementById('edit-head').value = "0";
                 document.getElementById('edit-price').value = product.price.toFixed(2);
                 document.getElementById('edit-available-stock').textContent = product.stock_kilos;
 
@@ -580,41 +594,51 @@
 
                 if (existingRow) {
                     const quantityInput = existingRow.querySelector('.number-spinner');
+                    const headInput = existingRow.querySelector('.head-input');
                     const newQuantity = parseFloat(quantityInput.value) + parseFloat(product.stock_kilos);
+                    const newHead = parseInt(headInput.value) + parseInt(product.head);
 
                     if (validateStock(existingRow, newQuantity, product.price)) {
                         quantityInput.value = newQuantity;
+                        headInput.value = newHead;
                         updateSubtotal(existingRow);
                         showAddToCartFeedback(true);
                     } else {
                         showAddToCartFeedback(false);
                     }
                 } else {
-                    // Add new row to the table with the product details
                     const newRow = document.createElement('tr');
                     newRow.dataset.productId = product.product_id;
                     newRow.dataset.stockKilos = product.stock_kilos;
                     newRow.dataset.price = product.price;
+                    newRow.dataset.dr = product.dr || ''; // Add dr to dataset
 
                     newRow.innerHTML = `
-                        <th>${product.product_sku}</th>
-                        <td style="width: 150px;">
-                            <div class="form-control-wrap number-spinner-wrap" style="width: 200px;">
-                                <button class="btn btn-icon btn-outline-light number-spinner-btn number-minus" data-number="minus">
-                                    <em class="icon ni ni-minus"></em>
-                                </button>
-                                <input type="number" class="form-control number-spinner" value="${product.stock_kilos}" min="1">
-                                <button class="btn btn-icon btn-outline-light number-spinner-btn number-plus" data-number="plus">
-                                    <em class="icon ni ni-plus"></em>
-                                </button>
-                            </div>
-                            <div class="stock-info text-danger" style="display: none; font-size: 0.8rem; margin-top: 4px;"></div>
-                        </td>
-                        <td>
-                            <input type="number" class="form-control price-input" value="${product.price.toFixed(2)}" style="width: 150px;" disabled>
-                        </td>
-                        <td class="subtotal">₱${(product.stock_kilos * product.price).toFixed(2)}</td>
-                    `;
+            <th>${product.product_sku}</th>
+            <td style="width: 150px;">
+                <div class="form-control-wrap number-spinner-wrap" style="width: 200px;">
+                    <button class="btn btn-icon btn-outline-light number-spinner-btn number-minus" data-number="minus">
+                        <em class="icon ni ni-minus"></em>
+                    </button>
+                    <input type="number" class="form-control number-spinner" value="${product.stock_kilos}" min="1">
+                    <button class="btn btn-icon btn-outline-light number-spinner-btn number-plus" data-number="plus">
+                        <em class="icon ni ni-plus"></em>
+                    </button>
+                </div>
+                <div class="stock-info text-danger" style="display: none; font-size: 0.8rem; margin-top: 4px;"></div>
+            </td>
+            <td>
+                <input type="number" class="form-control head-input" value="${product.head}" min="0" style="width: 80px;">
+            </td>
+            <td class="dr-column" style="display: none;">${product.dr || ''}</td>
+            <td>
+                <input type="number" class="form-control price-input" value="${product.price.toFixed(2)}" style="width: 150px;" disabled>
+            </td>
+            <td class="subtotal">₱${(product.stock_kilos * product.price).toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            })}</td>
+        `;
 
                     tbody.appendChild(newRow);
                     setupRowEventListeners(newRow);
@@ -725,6 +749,7 @@
 
             // SKU Search Functionality
             // Modify SKU search handler to show most recent stock
+            // Update the SKU search handler
             document.getElementById('sku-input').addEventListener('keyup', function(event) {
                 let query = this.value;
                 let productDetails = document.getElementById('product-details');
@@ -754,8 +779,7 @@
 
                                 if (availableProducts.length > 0) {
                                     // Sort by created_at in descending order and take the most recent
-                                    const mostRecentProduct = availableProducts[
-                                        0]; // API already returns sorted by created_at
+                                    const mostRecentProduct = availableProducts[0];
                                     const key = `${mostRecentProduct.product_sku}-${mostRecentProduct.price}`;
                                     const inCart = cartQuantities[key] || 0;
                                     const availableStock = mostRecentProduct.stock_kilos - inCart;
@@ -766,6 +790,7 @@
                                 data-sku="${mostRecentProduct.product_sku}"
                                 data-name="${mostRecentProduct.product_name}"
                                 data-kilos="${availableStock}"
+                                data-dr="${mostRecentProduct.dr || ''}"
                                 data-price="${mostRecentProduct.price}">
                                 <span class="product-sku">${mostRecentProduct.product_sku}</span>
                                 <span class="product-price">${availableStock} kg - ₱${parseFloat(mostRecentProduct.price).toFixed(2)}</span>
@@ -774,42 +799,15 @@
 
                                     productDetails.innerHTML = productItem;
                                 } else {
-                                    // If current option is depleted, try to show next available option
-                                    const nextAvailableProduct = data.products.find(product => {
-                                        const key = `${product.product_sku}-${product.price}`;
-                                        const inCart = cartQuantities[key] || 0;
-                                        return (product.stock_kilos - inCart) > 0;
-                                    });
-
-                                    if (nextAvailableProduct) {
-                                        const key =
-                                            `${nextAvailableProduct.product_sku}-${nextAvailableProduct.price}`;
-                                        const inCart = cartQuantities[key] || 0;
-                                        const availableStock = nextAvailableProduct.stock_kilos - inCart;
-
-                                        productDetails.innerHTML = `
-                                <div class="product-item" tabindex="0"
-                                    data-product-id="${nextAvailableProduct.product_id}"
-                                    data-sku="${nextAvailableProduct.product_sku}"
-                                    data-name="${nextAvailableProduct.product_name}"
-                                    data-kilos="${availableStock}"
-                                    data-price="${nextAvailableProduct.price}">
-                                    <span class="product-sku">${nextAvailableProduct.product_sku}</span>
-                                    <span class="product-price">${availableStock} kg - ₱${parseFloat(nextAvailableProduct.price).toFixed(2)}</span>
-                                </div>
-                            `;
-                                    } else {
-                                        productDetails.innerHTML =
-                                            '<div class="product-item">No available stock for this SKU</div>';
-                                    }
+                                    productDetails.innerHTML =
+                                        '<div class="product-item">No available stock for this SKU</div>';
                                 }
-                                productDetails.style.display = 'block';
-                                setupProductItemListeners();
                             } else {
                                 productDetails.innerHTML =
                                     '<div class="product-item">No matching products found</div>';
-                                productDetails.style.display = 'block';
                             }
+                            productDetails.style.display = 'block';
+                            setupProductItemListeners();
                         })
                         .catch(error => {
                             console.error('Error:', error);
@@ -837,13 +835,14 @@
                             product_sku: this.dataset.sku,
                             product_name: this.dataset.name,
                             stock_kilos: parseFloat(this.dataset.kilos),
+                            dr: this.dataset.dr || '', // Include dr value
                             price: parseFloat(this.dataset.price)
                         };
 
                         skuInput.value = ''; // Clear input
                         productDetails.innerHTML = ''; // Clear dropdown content
                         productDetails.style.display = 'none'; // Hide dropdown
-                        showEditModal(product); // Changed from addToCart to showEditModal
+                        showEditModal(product);
                     });
                 });
             }
@@ -1140,7 +1139,10 @@
             }
             // Helper function to format currency
             function formatCurrency(amount) {
-                return `₱${amount.toFixed(2)}`;
+                return `₱${amount.toLocaleString('en-US', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    })}`;
             }
             // Close dropdown when clicking outside
             document.addEventListener('DOMContentLoaded', function() {

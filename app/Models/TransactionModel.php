@@ -29,6 +29,7 @@ class TransactionModel extends Model
         'change_amount',
         'discount_percentage',
         'discount_amount',
+        'credit_charge',
         'status',
         'used_advance_payment',
         'reference_number',
@@ -47,6 +48,7 @@ class TransactionModel extends Model
         'total_amount' => 'decimal:2',
         'discount_percentage' => 'decimal:2',
         'discount_amount' => 'decimal:2',
+        'credit_charge' => 'decimal:2',  // Add this line
         'created_at' => 'datetime:Y-m-d H:i:s.u',
         'updated_at' => 'datetime:Y-m-d H:i:s.u',
         'date' => 'datetime:Y-m-d H:i:s.u'

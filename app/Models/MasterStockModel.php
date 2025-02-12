@@ -18,6 +18,8 @@ class MasterStockModel extends Model
         'product_id',
         'total_all_kilos',
         'price',
+        'total_head',
+        'dr'
     ];
 
     public $timestamps = false;

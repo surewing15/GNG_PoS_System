@@ -61,6 +61,7 @@
                                 <tr>
                                     <th>Product (SKU)</th>
                                     <th>Kilos</th>
+                                    <th>Head/Pcs</th>
                                     <th>Price</th>
                                 </tr>
                             </thead>
@@ -77,13 +78,36 @@
             </div>
         </div>
 
+        <div class="modal fade" id="drModal" tabindex="-1" aria-labelledby="drModalLabel" aria-hidden="true">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="drModalLabel">Enter Delivery Receipt Number</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="dr-number" class="form-label">DR Number</label>
+                            <input type="text" class="form-control" id="dr-number" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" id="confirm-save">Confirm Save</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const cartTableBody = document.getElementById('cart-table-body');
-            const resetCartButton = document.getElementById('reset-cart');
             const saveCartButton = document.getElementById('save-cart');
+            const resetCartButton = document.getElementById('reset-cart');
+            const drModal = new bootstrap.Modal(document.getElementById('drModal'));
+            const confirmSaveButton = document.getElementById('confirm-save');
+            let cartItemsToSave = [];
 
             document.addEventListener('click', function(event) {
                 if (event.target.classList.contains('add-to-cart')) {
@@ -105,47 +129,89 @@
                         newRow.innerHTML = `
                     <td>${productData.name}</td>
                     <td>
-                        <input type="number" class="form-control kilos-input" value="${productData.kilos}" style="width: 80px; text-align: center;">
+                        <input type="number" class="form-control kilos-input" value="${productData.kilos}"
+                            style="width: 80px; text-align: center;">
                     </td>
                     <td>
-                        <input type="number" class="form-control price-input" value="0" style="width: 100px; text-align: center;">
+                        <input type="number" class="form-control head-input" value="0"
+                            style="width: 80px; text-align: center;">
+                    </td>
+                    <td>
+                        <input type="number" class="form-control price-input" value="0"
+                            style="width: 100px; text-align: center;">
                     </td>
                 `;
                         cartTableBody.appendChild(newRow);
 
-                        // Disable the button and apply a "disabled" class
                         event.target.disabled = true;
                         event.target.classList.add('disabled-btn');
                     }
                 }
             });
-            // Reset the cart
-            resetCartButton.addEventListener('click', function() {
-                cartTableBody.innerHTML = ''; // Clear all rows
 
-                // Re-enable all "Add to Cart" buttons and remove the "disabled-btn" class
-                const addToCartButtons = document.querySelectorAll('.add-to-cart');
-                addToCartButtons.forEach(button => {
-                    button.disabled = false; // Re-enable the button
-                    button.classList.remove('disabled-btn'); // Remove the disabled styling class
+            resetCartButton.addEventListener('click', function() {
+                cartTableBody.innerHTML = '';
+                document.querySelectorAll('.add-to-cart').forEach(button => {
+                    button.disabled = false;
+                    button.classList.remove('disabled-btn');
                 });
             });
-            // Save the cart
+
             saveCartButton.addEventListener('click', function() {
-                const cartItems = [];
                 const rows = cartTableBody.querySelectorAll('tr');
+
+                if (rows.length === 0) {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'Empty Cart',
+                        text: 'Please add items to the cart before saving.',
+                    });
+                    return;
+                }
+
+                cartItemsToSave = [];
+                let isValid = true;
 
                 rows.forEach(row => {
                     const productId = row.getAttribute('data-id');
                     const kilos = row.querySelector('.kilos-input').value;
+                    const head = row.querySelector('.head-input').value;
                     const price = row.querySelector('.price-input').value;
 
-                    cartItems.push({
+                    if (!kilos || !price) {
+                        isValid = false;
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Invalid Input',
+                            text: 'Please fill in all required fields (kilos and price) for each item.',
+                        });
+                        return;
+                    }
+
+                    cartItemsToSave.push({
                         product_id: productId,
                         kilos: parseFloat(kilos),
+                        head: parseInt(head || 0),
                         price: parseFloat(price)
                     });
                 });
+
+                if (isValid) {
+                    drModal.show();
+                }
+            });
+
+            confirmSaveButton.addEventListener('click', function() {
+                const drNumber = document.getElementById('dr-number').value.trim();
+
+                if (!drNumber) {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'DR Number Required',
+                        text: 'Please enter a delivery receipt number.',
+                    });
+                    return;
+                }
 
                 fetch('{{ route('stocks.store') }}', {
                         method: 'POST',
@@ -154,18 +220,20 @@
                             'X-CSRF-TOKEN': '{{ csrf_token() }}',
                         },
                         body: JSON.stringify({
-                            cart: cartItems
+                            cart: cartItemsToSave,
+                            dr: drNumber
                         }),
                     })
                     .then(response => response.json())
                     .then(data => {
+                        drModal.hide();
                         if (data.success) {
                             Swal.fire({
                                 icon: 'success',
                                 title: 'Saved!',
                                 text: 'Stock has been updated successfully.',
                             }).then(() => {
-                                location.reload(); // Refresh the page after saving
+                                location.reload();
                             });
                         } else {
                             Swal.fire({
@@ -176,6 +244,8 @@
                         }
                     })
                     .catch(error => {
+                        drModal.hide();
+                        console.error('Save error:', error);
                         Swal.fire({
                             icon: 'error',
                             title: 'Error',
@@ -186,4 +256,3 @@
         });
     </script>
 </x-app-layout>
-

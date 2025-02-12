@@ -27,7 +27,8 @@
                     <div class="nk-block nk-block-lg">
                         <div class="card card-bordered card-preview">
                             <div class="card-inner">
-                                <table class="datatable-init-export nowrap table" data-export-title="Export" data-order="false" >
+                                <table class="datatable-init-export nowrap table" data-export-title="Export"
+                                    data-order="false">
                                     <thead>
                                         <tr>
                                             <th>Receipt ID#</th>
@@ -52,7 +53,8 @@
                                                 </td>
                                                 <td>
                                                     <div class="dropdown">
-                                                        <a href="#" class="dropdown-toggle btn btn-icon btn-trigger"
+                                                        <a href="#"
+                                                            class="dropdown-toggle btn btn-icon btn-trigger"
                                                             data-bs-toggle="dropdown" aria-expanded="false">
                                                             <em class="icon ni ni-more-h"></em>
                                                         </a>
@@ -70,7 +72,8 @@
                                                                 <li>
                                                                     <a href="#" class="view-transaction-details"
                                                                         data-receipt-id="{{ $transaction['receipt_id'] }}">
-                                                                        <em class="icon ni ni-edit"></em><span>View</span>
+                                                                        <em
+                                                                            class="icon ni ni-edit"></em><span>View</span>
                                                                     </a>
 
                                                                 </li>
@@ -158,6 +161,3 @@
             });
         });
     </script>
-
-
-

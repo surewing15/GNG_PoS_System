@@ -76,6 +76,8 @@
                                 <tr>
                                     <th>SKU</th>
                                     <th class="text-end">Kilos</th>
+                                    <th class="text-end">Head</th>
+                                    {{-- <th class="text-end">DR</th> --}}
                                     <th class="text-end">Price</th>
                                     <th class="text-end">Total</th>
                                 </tr>
@@ -248,14 +250,10 @@
         }
 
         // Receipt Items Update Function
+        // Update the updateReceiptItems function to remove DR from display
         function updateReceiptItems() {
             const receiptTbody = document.querySelector('#invoiceModal .receipt-items tbody');
             const cartItems = document.querySelectorAll('.table-striped tbody tr');
-
-            if (!receiptTbody) {
-                console.error('Receipt tbody not found');
-                return;
-            }
 
             receiptTbody.innerHTML = '';
             const aggregatedItems = {};
@@ -264,17 +262,23 @@
                 try {
                     const sku = item.querySelector('th')?.textContent?.trim();
                     const kilos = parseFloat(item.querySelector('.number-spinner')?.value) || 0;
+                    const head = parseInt(item.querySelector('.head-input')?.value) || 0;
+                    const dr = item.dataset.dr || ''; // Still get DR for data but don't display it
                     const price = parseFloat(item.querySelector('.price-input')?.value) || 0;
-                    const total = parseFloat(item.querySelector('.subtotal')?.textContent?.replace('₱',
-                        '')) || 0;
+                    const total = parseFloat(item.querySelector('.subtotal')?.textContent?.replace(
+                        /[₱,\s]/g, '')) || 0;
 
                     if (sku && kilos > 0 && price > 0 && total > 0) {
                         if (aggregatedItems[sku]) {
                             aggregatedItems[sku].kilos += kilos;
+                            aggregatedItems[sku].head += head;
+                            aggregatedItems[sku].dr = dr; // Keep DR in data
                             aggregatedItems[sku].total += total;
                         } else {
                             aggregatedItems[sku] = {
                                 kilos,
+                                head,
+                                dr, // Keep DR in data
                                 price,
                                 total
                             };
@@ -287,20 +291,21 @@
 
             Object.entries(aggregatedItems).forEach(([sku, {
                 kilos,
+                head,
                 price,
                 total
             }]) => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td class="text-start">${sku}</td>
-                    <td class="text-end">${kilos.toFixed(2)}</td>
-                    <td class="text-end">₱${price.toFixed(2)}</td>
-                    <td class="text-end">₱${total.toFixed(2)}</td>
-                `;
+            <td class="text-start">${sku}</td>
+            <td class="text-end">${kilos.toFixed(2)}</td>
+            <td class="text-end">${head}</td>
+            <td class="text-end">₱${price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            <td class="text-end">₱${total.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+        `;
                 receiptTbody.appendChild(row);
             });
         }
-
         // Modal Content Update Function
         function updateModalContent() {
             try {
@@ -316,32 +321,37 @@
 
                 updateReceiptItems();
 
-                const subtotal = document.getElementById('total').textContent;
-                const discountAmount = document.getElementById('discount-amount').textContent;
-                const totalAfterDiscount = document.getElementById('total-after-discount').textContent;
+                // Calculate totals directly from receipt items
+                const receiptItems = document.querySelectorAll('.receipt-items tbody tr');
+                let subtotalValue = 0;
 
-                const subtotalValue = parseFloat(subtotal.replace('₱', '')) || 0;
-                const discountValue = parseFloat(discountAmount.replace('₱', '')) || 0;
-                const grandTotal = discountValue > 0 ?
-                    parseFloat(totalAfterDiscount.replace('₱', '')) || 0 :
-                    subtotalValue;
+                receiptItems.forEach(row => {
+                    const totalText = row.cells[4].textContent;
+                    const total = parseFloat(totalText.replace(/[₱,\s]/g, '')) || 0;
+                    subtotalValue += total;
+                });
+
+                // Get discount from the original input
+                const discountPercentage = parseFloat(document.getElementById('discount-input').value) || 0;
+                const discountValue = (subtotalValue * discountPercentage) / 100;
+                const grandTotal = subtotalValue - discountValue;
 
                 const receiptTotal = document.querySelector('.receipt-total');
                 if (receiptTotal) {
                     receiptTotal.innerHTML = `
-                        <div class="d-flex justify-content-between mb-2">
-                            <strong>Subtotal:</strong>
-                            <span>${subtotal}</span>
-                        </div>
-                        <div class="d-flex justify-content-between mb-2">
-                            <strong>Discount:</strong>
-                            <span>${discountAmount}</span>
-                        </div>
-                        <div class="d-flex justify-content-between fw-bold">
-                            <strong>GRAND TOTAL:</strong>
-                            <span>₱${grandTotal.toFixed(2)}</span>
-                        </div>
-                    `;
+                <div class="d-flex justify-content-between mb-2">
+                    <strong>Subtotal:</strong>
+                    <span>₱${subtotalValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <strong>Discount:</strong>
+                    <span>₱${discountValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </div>
+                <div class="d-flex justify-content-between fw-bold">
+                    <strong>GRAND TOTAL:</strong>
+                    <span>₱${grandTotal.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </div>
+            `;
                 }
 
                 const amountPaidInput = document.getElementById('amount-paid');
@@ -350,6 +360,7 @@
                 }
             } catch (error) {
                 console.error('Error updating modal content:', error);
+                console.error('Error details:', error.stack);
                 Swal.fire({
                     icon: 'error',
                     title: 'Error',
@@ -412,46 +423,49 @@
                     customer_name: document.getElementById('customerName').textContent,
                     service_type: document.getElementById('serviceType').value,
                     payment_type: document.getElementById('paymentType').value,
-                    items: Array.from(document.querySelectorAll('.receipt-items tbody tr')).map(
-                        row => ({
-                            sku: row.cells[0].textContent,
-                            kilos: parseFloat(row.cells[1].textContent),
-                            price_per_kilo: parseFloat(row.cells[2].textContent.replace(
-                                '₱', '')),
-                            total: parseFloat(row.cells[3].textContent.replace('₱', ''))
-                        })),
+                    items: Array.from(document.querySelectorAll('.receipt-items tbody tr'))
+                        .map(
+                            row => ({
+                                sku: row.cells[0].textContent,
+                                kilos: parseFloat(row.cells[1].textContent),
+                                head: parseInt(row.cells[2].textContent),
+                                price_per_kilo: parseFloat(row.cells[3].textContent
+                                    .replace(
+                                        '₱', '')),
+                                total: parseFloat(row.cells[4].textContent.replace('₱',
+                                    ''))
+                            })),
                     subtotal: parseFloat(document.querySelector(
-                        '.receipt-total .mb-2:first-child span').textContent.replace(
-                        '₱', '')),
+                            '.receipt-total .mb-2:first-child span').textContent
+                        .replace(
+                            '₱', '')),
                     discount_amount: parseFloat(document.querySelector(
-                        '.receipt-total .mb-2:nth-child(2) span').textContent.replace(
-                        '₱', '')),
+                            '.receipt-total .mb-2:nth-child(2) span').textContent
+                        .replace(
+                            '₱', '')),
                     total_amount: parseFloat(document.querySelector(
-                        '.receipt-total .fw-bold span').textContent.replace('₱', '')),
-                    // Add payment-specific fields
+                        '.receipt-total .fw-bold span').textContent.replace('₱',
+                        '')),
                     amount_paid: document.getElementById('amount-paid').value ? parseFloat(
                         document.getElementById('amount-paid').value) : null,
-                    change_amount: document.getElementById('change-amount').value ? parseFloat(
-                        document.getElementById('change-amount').value) : null,
-                    used_advance_payment: document.getElementById('advanceToUse') ? parseFloat(
-                        document.getElementById('advanceToUse').textContent.replace('₱', '')
+                    change_amount: document.getElementById('change-amount').value ?
+                        parseFloat(
+                            document.getElementById('change-amount').value) : null,
+                    used_advance_payment: document.getElementById('advanceToUse') ?
+                        parseFloat(
+                            document.getElementById('advanceToUse').textContent.replace('₱',
+                                '')
                         ) : null,
                     reference_number: document.getElementById('reference-number') ? document
                         .getElementById('reference-number').value : null
                 };
 
-                if (receiptData.payment_type === 'cash') {
-                    receiptData.amount_paid = parseFloat(document.getElementById('amount-paid')
-                        .value);
-                    receiptData.change_amount = parseFloat(document.getElementById('change-amount')
-                        .value);
-                }
-
                 const response = await fetch('/cashier/print-receipt', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')
+                        'X-CSRF-TOKEN': document.querySelector(
+                                'meta[name="csrf-token"]')
                             .content
                     },
                     body: JSON.stringify(receiptData)
@@ -476,6 +490,7 @@
                 });
             }
         });
+
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
                 const modal = bootstrap.Modal.getInstance(invoiceModal);
@@ -570,122 +585,103 @@
             paymentTypeSelect.addEventListener('change', handlePaymentTypeChange);
         }
 
-        // Modify the existing confirmPayment function
+
+        // Inside the confirmPayment function
         window.confirmPayment = async function() {
             if (isSubmitting) return;
 
-            const confirmButton = document.querySelector('button.btn-success');
-            const paymentType = document.getElementById('paymentType').value;
-            const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
-            const totalAmount = parseFloat(document.querySelector('.receipt-total .fw-bold span')
-                .textContent.replace('₱', '')) || 0;
-            const customerId = document.getElementById('selected-customer-id').value;
-
             try {
+                const confirmButton = document.querySelector('button.btn-success');
+                const paymentType = document.getElementById('paymentType').value;
+                const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
+                const grandTotal = parseFloat(document.querySelector('.receipt-total .fw-bold span')
+                    .textContent.replace(/[₱,\s]/g, '')) || 0;
+                const subtotal = parseFloat(document.querySelector(
+                        '.receipt-total .mb-2:first-child span').textContent.replace(/[₱,\s]/g, '')) ||
+                    0;
+                const discountAmount = parseFloat(document.querySelector(
+                    '.receipt-total .mb-2:nth-child(2) span').textContent.replace(/[₱,\s]/g,
+                    '')) || 0;
+                const discountPercentage = parseFloat(document.getElementById('discount-input').value ||
+                    '0');
+                const customerId = document.getElementById('selected-customer-id').value;
+
+                // Calculate credit charge
+                const creditCharge = Math.max(0, grandTotal - amountPaid);
+                console.log('Credit charge calculation:', {
+                    grandTotal,
+                    amountPaid,
+                    creditCharge
+                });
+
                 isSubmitting = true;
                 confirmButton.disabled = true;
 
-                // Validate based on payment type
-                switch (paymentType) {
-                    case 'advance_payment':
-                        const availableAdvance = parseFloat(document.getElementById('availableAdvance')
-                            .textContent.replace('₱', '')) || 0;
-                        const advanceToUse = parseFloat(document.getElementById('advanceToUse')
-                            .textContent.replace('₱', '')) || 0;
+                // Show confirmation for credit charges
+                if (creditCharge > 0) {
+                    const confirmCredit = await Swal.fire({
+                        title: 'Credit Charge Confirmation',
+                        html: `
+                    <div class="text-left">
+                        <p>Total Amount: ₱${grandTotal.toFixed(2)}</p>
+                        <p>Amount Paid: ₱${amountPaid.toFixed(2)}</p>
+                        <p class="font-weight-bold text-danger">Credit Charge: ₱${creditCharge.toFixed(2)}</p>
+                    </div>
+                    <p class="mt-3">This amount will be added as credit charge to the customer's balance. Continue?</p>
+                `,
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonText: 'Yes, continue',
+                        cancelButtonText: 'No, cancel'
+                    });
 
-                        if (availableAdvance < advanceToUse) {
-                            throw new Error('Insufficient advance payment available.');
-                        }
-                        break;
-
-                    case 'online':
-                        const referenceNumber = document.getElementById('reference-number').value;
-                        if (!referenceNumber.trim()) {
-                            throw new Error('Please enter a reference number for online payment.');
-                        }
-                        break;
-
-                    case 'cash':
-                        if (amountPaid <= 0) {
-                            throw new Error('Amount paid must be greater than 0');
-                        }
-
-                        // Calculate remaining balance
-                        const remainingBalance = totalAmount - amountPaid;
-                        if (remainingBalance > 0) {
-                            // Show confirmation for partial payment
-                            const confirmPartial = await Swal.fire({
-                                title: 'Partial Payment',
-                                text: `₱${remainingBalance.toFixed(2)} will be added to customer's balance. Continue?`,
-                                icon: 'warning',
-                                showCancelButton: true,
-                                confirmButtonText: 'Yes, continue',
-                                cancelButtonText: 'No, cancel'
-                            });
-
-                            if (!confirmPartial.isConfirmed) {
-                                isSubmitting = false;
-                                confirmButton.disabled = false;
-                                return;
-                            }
-                        }
-                        break;
-                }
-
-                // Get transaction data
-                const serviceType = document.getElementById('serviceType').value;
-                const subtotal = parseFloat(document.getElementById('total').textContent.replace('₱',
-                    ''));
-                const discountAmount = parseFloat(document.getElementById('discount-amount').textContent
-                    .replace('₱', ''));
-                const discountPercentage = parseFloat(document.getElementById('discount-input').value ||
-                    '0');
-                const changeAmount = parseFloat(document.getElementById('change-amount').value) || 0;
-
-                // Get advance payment amount if that payment type is selected
-                let usedAdvancePayment = 0;
-                if (paymentType === 'advance_payment') {
-                    const advanceText = document.getElementById('advanceToUse').textContent;
-                    usedAdvancePayment = parseFloat(advanceText.replace('₱', '').trim()) || 0;
-                    if (usedAdvancePayment <= 0) {
-                        throw new Error('Invalid advance payment amount');
+                    if (!confirmCredit.isConfirmed) {
+                        isSubmitting = false;
+                        confirmButton.disabled = false;
+                        return;
                     }
                 }
 
-                // Get items from cart
-                const items = Array.from(document.querySelector('.table-striped tbody').rows).map(row =>
-                    ({
-                        product_id: parseInt(row.dataset.productId),
-                        kilos: parseFloat(row.querySelector('.number-spinner').value),
-                        price_per_kilo: parseFloat(row.querySelector('.price-input').value),
-                        total: parseFloat(row.querySelector('.subtotal').textContent.replace(
-                            '₱', ''))
-                    }));
-
-                // Calculate remaining balance for balance update
-                const remainingBalance = totalAmount - amountPaid;
-
-                // Prepare transaction data
+                // Prepare transaction data with credit charge
                 const transactionData = {
                     customer_id: parseInt(customerId),
-                    service_type: String(serviceType),
-                    payment_type: String(paymentType),
-                    reference_number: paymentType === 'online' ? String(document.getElementById(
-                        'reference-number').value) : null,
-                    used_advance_payment: paymentType === 'advance_payment' ? Number(
-                        usedAdvancePayment.toFixed(2)) : null,
-                    items: items,
-                    subtotal: Number(subtotal.toFixed(2)),
-                    discount_percentage: Number(discountPercentage.toFixed(2)),
-                    discount_amount: Number(discountAmount.toFixed(2)),
-                    total_amount: Number(totalAmount.toFixed(2)),
-                    receipt_id: String(document.getElementById('receiptID').textContent),
-                    status: serviceType === 'deliver' ? 'Not Assigned' : null,
-                    amount_paid: Number(amountPaid.toFixed(2)),
-                    change_amount: Number(changeAmount.toFixed(2)),
-                    remaining_balance: Number(Math.max(0, remainingBalance).toFixed(
-                        2)) // Add remaining balance
+                    service_type: document.getElementById('serviceType').value,
+                    payment_type: paymentType,
+                    items: Array.from(document.querySelector('.table-striped tbody').rows).map(
+                        row => {
+                            const kilos = parseFloat(row.querySelector('.number-spinner')
+                            .value);
+                            const price_per_kilo = parseFloat(row.querySelector('.price-input')
+                                .value);
+                            const total = kilos * price_per_kilo; // Calculate total explicitly
+
+                            // Add validation here
+                            if (Math.abs(total - (kilos * price_per_kilo)) > 0.01) {
+                                throw new Error('Total calculation mismatch');
+                            }
+
+                            return {
+                                product_id: parseInt(row.dataset.productId),
+                                kilos: kilos,
+                                head: parseInt(row.querySelector('.head-input').value) || 0,
+                                dr: row.dataset.dr || '',
+                                price_per_kilo: price_per_kilo,
+                                total: total // Use calculated total
+                            };
+                        }),
+                    subtotal: subtotal,
+                    discount_percentage: discountPercentage,
+                    discount_amount: discountAmount,
+                    total_amount: grandTotal,
+                    amount_paid: amountPaid,
+                    credit_charge: creditCharge,
+                    change_amount: Math.max(0, amountPaid - grandTotal),
+                    receipt_id: document.getElementById('receiptID').textContent,
+                    status: document.getElementById('serviceType').value === 'deliver' ?
+                        'Not Assigned' : null
                 };
+
+                console.log('Sending transaction data:', transactionData);
 
                 // Send transaction to server
                 const response = await fetch('/save-transaction', {
@@ -700,40 +696,29 @@
                 });
 
                 const result = await response.json();
+                console.log('Server response:', result);
+
                 if (!result.success) {
                     throw new Error(result.message || 'Transaction failed');
                 }
 
-                // Handle success
+                // Handle success with credit charge message
                 let message = `Payment successful! Transaction ID: ${result.transaction_id}`;
-                if (remainingBalance > 0) {
+                if (creditCharge > 0) {
                     message +=
-                        `\n₱${remainingBalance.toFixed(2)} has been added to customer's balance.`;
+                        `<br><span class="text-danger">Credit charge of ₱${creditCharge.toFixed(2)} has been added to customer's balance.</span>`;
                 }
 
-                // Close modal and reset UI
+                // Close modal and show success message
                 const modal = bootstrap.Modal.getInstance(document.getElementById('invoiceModal'));
                 if (modal) {
                     modal.hide();
                 }
 
-                // Clear cart and reset UI elements
-                document.querySelector('.table-striped tbody').innerHTML = '';
-                ['total', 'discount-amount', 'total-after-discount'].forEach(id => {
-                    document.getElementById(id).textContent = '₱0.00';
-                });
-
-                ['discount-input', 'amount-paid', 'change-amount', 'customer-search',
-                    'selected-customer-id', 'sku-input'
-                ]
-                .forEach(id => {
-                    document.getElementById(id).value = '';
-                });
-
                 await Swal.fire({
                     icon: 'success',
                     title: 'Success',
-                    text: message,
+                    html: message,
                     allowOutsideClick: false
                 });
 
@@ -787,6 +772,9 @@
                     '0');
                 const serviceType = document.getElementById('serviceType').value;
 
+                // Calculate credit charge - difference between total and amount paid
+                const creditCharge = Math.max(0, totalAfterDiscount - amountPaid);
+
                 // Get advance payment amount if that payment type is selected
                 let usedAdvancePayment = 0;
                 if (paymentType === 'advance_payment') {
@@ -797,19 +785,24 @@
                     }
                 }
 
-                const items = Array.from(document.querySelector('.table-striped tbody').rows).map(row => ({
-                    product_id: parseInt(row.dataset.productId),
-                    kilos: parseFloat(row.querySelector('.number-spinner').value),
-                    price_per_kilo: parseFloat(row.querySelector('.price-input').value),
-                    total: parseFloat(row.querySelector('.subtotal').textContent.replace('₱',
-                        ''))
-                }));
+                const items = Array.from(document.querySelector('.table-striped tbody').rows).map(row => {
+                    const kilos = parseFloat(row.querySelector('.number-spinner').value);
+                    const price_per_kilo = parseFloat(row.querySelector('.price-input').value);
+                    return {
+                        product_id: parseInt(row.dataset.productId),
+                        kilos: kilos,
+                        head: parseInt(row.querySelector('.head-input').value) || 0,
+                        dr: row.dataset.dr || '',
+                        price_per_kilo: price_per_kilo,
+                        total: kilos * price_per_kilo // Explicit calculation
+                    };
+                });
 
-                // Format numbers properly and ensure strings are properly passed
+                // Format transaction data with credit charge
                 const transactionData = {
                     customer_id: parseInt(customerId),
                     service_type: String(serviceType),
-                    payment_type: String(paymentType), // Ensure it's passed as a string
+                    payment_type: String(paymentType),
                     reference_number: paymentType === 'online' ? String(document.getElementById(
                         'reference-number').value) : null,
                     used_advance_payment: paymentType === 'advance_payment' ? Number(usedAdvancePayment
@@ -819,11 +812,17 @@
                     discount_percentage: Number(discountPercentage.toFixed(2)),
                     discount_amount: Number(discountAmount.toFixed(2)),
                     total_amount: Number(totalAfterDiscount.toFixed(2)),
-                    receipt_id: String(document.getElementById('receiptID').textContent),
-                    status: serviceType === 'deliver' ? 'Not Assigned' : null,
                     amount_paid: Number(amountPaid.toFixed(2)),
-                    change_amount: Number(changeAmount.toFixed(2))
+                    credit_charge: Number(creditCharge.toFixed(2)), // Add credit charge
+                    change_amount: Number(changeAmount.toFixed(2)),
+                    receipt_id: String(document.getElementById('receiptID').textContent),
+                    status: serviceType === 'deliver' ? 'Not Assigned' : null
                 };
+
+                console.log('Sending transaction data:', {
+                    ...transactionData,
+                    credit_charge: creditCharge // Log credit charge explicitly
+                });
 
                 const response = await fetch('/save-transaction', {
                     method: 'POST',

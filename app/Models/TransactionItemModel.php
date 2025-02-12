@@ -15,10 +15,12 @@ class TransactionItemModel extends Model
     protected $fillable = [
         'transaction_id',
         "user_id",
+        'dr',
         'product_id',
         'kilos',
         'price_per_kilo',
         'total',
+        'head',
     ];
 
     /**

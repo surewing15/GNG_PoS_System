@@ -79,7 +79,7 @@ Route::middleware([
     Route::post('/reports', [GenerateReportController::class, 'store'])->name('reports.store');
 
     Route::get('/admin/generate/reports', [GenerateReportController::class, 'index']);
-    Route::get('/reports/{date}/export', [GenerateReportController::class, 'export'])->name('reports.export');
+    Route::get('/admin/report/export', [GenerateReportController::class, 'export'])->name('reports.export');
 
     Route::get('/expenses-report', [AexpensesReportController::class, 'index'])->name('expenses.report');
     Route::get('/export/{type}', [ExportController::class, 'export'])->name('export');

@@ -13,6 +13,7 @@
                         <tr>
                             <th>Product (SKU)</th>
                             <th>Total Kilos</th>
+                            <th>heads/pcs</th>
                             <th>Price</th>
                             <th>Date</th>
                             <th>Time</th>
@@ -24,6 +25,7 @@
                             <tr>
                                 <td>{{ $stock->product->product_sku }}</td>
                                 <td>{{ $stock->total_all_kilos }}Kg</td>
+                                <td>{{ $stock->total_head }}.pcs</td>
                                 <td>{{ $stock->price }}</td>
                                 <td>{{ \Carbon\Carbon::parse($stock['created_at'])->format('F d, Y') }}</td>
                                 <td>{{ \Carbon\Carbon::parse($stock['created_at'])->format('h:i:s A') }}</td>
@@ -94,5 +96,3 @@
         });
     </script>
 </x-app-layout>
-
-

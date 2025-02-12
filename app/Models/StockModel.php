@@ -16,6 +16,8 @@ class StockModel extends Model
         'product_id',
         'stock_kilos',
         'price',
+        'head',
+        'dr'
 
     ];
 
