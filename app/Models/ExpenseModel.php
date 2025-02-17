@@ -10,8 +10,9 @@ class ExpenseModel extends Model
     use HasFactory;
 
     protected $table = 'tbl_expenses';
-
+    protected $primaryKey = 'id';
     protected $fillable = [
+        'user_id',
         'e_description',
         'e_amount',
         'e_withdraw_by',

@@ -2,14 +2,15 @@
     <div class="nk-block nk-block-lg">
         <div class="nk-block-head">
             <div class="nk-block-head-content">
-                <h4 class="nk-block-title">Stocks History Export</h4>
+                <h4 class="nk-block-title">History</h4>
             </div>
         </div>
         <div class="card card-bordered card-preview">
             <div class="card-inner">
-                <table class="datatable-init-export nowrap table" data-export-title="Export">
+                <table class="datatable-init nowrap table" data-export-title="Export">
                     <thead>
                         <tr>
+                            <th class="tb-col-dr"><span class="overline-title">Delivery receipt(DR)</span></th>
                             <th class="tb-col-sku"><span class="overline-title">Product Code (SKU)</span></th>
                             <th class="tb-col-quantity"><span class="overline-title">Kilos</span></th>
                             <th class="tb-col-date"><span class="overline-title">Date</span></th>
@@ -19,6 +20,7 @@
                     <tbody>
                         @foreach ($stocks as $stock)
                             <tr>
+                                <td class="tb-col-dr">{{ $stock->dr ?? 'N/A' }}</td>
                                 <td class="tb-col-sku">{{ $stock->product->product_sku ?? 'N/A' }}</td>
                                 <td class="tb-col-quantity">
                                     <span class="sub-text">{{ $stock->stock_kilos }} kilos</span>

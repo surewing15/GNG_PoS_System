@@ -105,7 +105,7 @@
                                                 <span class="badge badge-primary fs-5 p-2">KAKING</span>
                                             </div>
 
-                                            @include('cashier.modal.advance-payment-modal')
+
                                             <!-- Customer Selection -->
                                             <div class="input-group">
                                                 <input type="text" id="customer-search"
@@ -348,6 +348,7 @@
         @include('cashier.modal.cashier-modal')
         @include('cashier.modal.customer-modal')
         @include('admin.forms.discount-permission-modal')
+        @include('cashier.modal.advance-payment-modal')
         <style>
             .input-group {
                 position: relative;
@@ -464,15 +465,25 @@
                     shortcutsModal.show();
                 }
             });
-        </script>|
+        </script>
         <script>
             let editModal;
             let currentProduct = null;
 
+            // Replace the edit modal event handling code
             document.addEventListener('DOMContentLoaded', function() {
-                editModal = new bootstrap.Modal(document.getElementById('editItemModal'));
+                const editModal = new bootstrap.Modal(document.getElementById('editItemModal'));
+                let isSubmitting = false;
 
-                function handleConfirmation() {
+                function handleConfirmation(event) {
+                    if (event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                    }
+
+                    if (isSubmitting) return;
+                    isSubmitting = true;
+
                     const kilos = parseFloat(document.getElementById('edit-kilos').value);
                     const head = parseInt(document.getElementById('edit-head').value) || 0;
                     const price = parseFloat(document.getElementById('edit-price').value);
@@ -480,6 +491,7 @@
 
                     // Validate inputs
                     if (isNaN(kilos) || kilos <= 0) {
+                        isSubmitting = false;
                         Swal.fire({
                             icon: 'error',
                             title: 'Invalid Quantity',
@@ -489,6 +501,7 @@
                     }
 
                     if (kilos > availableStock) {
+                        isSubmitting = false;
                         Swal.fire({
                             icon: 'error',
                             title: 'Insufficient Stock',
@@ -498,6 +511,7 @@
                     }
 
                     if (isNaN(head) || head < 0) {
+                        isSubmitting = false;
                         Swal.fire({
                             icon: 'error',
                             title: 'Invalid Head Count',
@@ -507,6 +521,7 @@
                     }
 
                     if (isNaN(price) || price <= 0) {
+                        isSubmitting = false;
                         Swal.fire({
                             icon: 'error',
                             title: 'Invalid Price',
@@ -520,40 +535,45 @@
                         currentProduct.stock_kilos = kilos;
                         currentProduct.head = head;
                         currentProduct.price = price;
-                        addToCartFinal(currentProduct);
 
-                        // Hide the modal before focusing back to SKU input
+                        // Hide modal first
                         editModal.hide();
 
-                        // Return focus to SKU input after modal closes
+                        // Add to cart after a small delay
                         setTimeout(() => {
-                            document.getElementById('sku-input').focus();
+                            addToCartFinal(currentProduct);
+                            isSubmitting = false;
+
+                            // Focus back on SKU input
+                            const skuInput = document.getElementById('sku-input');
+                            if (skuInput) {
+                                skuInput.focus();
+                            }
                         }, 100);
                     }
                 }
 
-                // Event listeners setup
+                // Handle Confirm button click
                 document.getElementById('confirmEdit').addEventListener('click', handleConfirmation);
 
-                // Handle Enter key on the form
-                document.getElementById('editItemForm').addEventListener('keydown', function(event) {
-                    if (event.key === 'Enter') {
-                        event.preventDefault();
-                        handleConfirmation();
-                    }
-                });
-
-                // Prevent Enter key from bubbling up on input fields
-                ['edit-sku', 'edit-kilos', 'edit-head', 'edit-price'].forEach(inputId => {
+                // Add Enter key handlers for each input field
+                ['edit-kilos', 'edit-head', 'edit-price'].forEach(inputId => {
                     document.getElementById(inputId).addEventListener('keydown', function(event) {
                         if (event.key === 'Enter') {
-                            event.preventDefault();
-                            handleConfirmation();
+                            handleConfirmation(event);
                         }
                     });
                 });
-            });
 
+                // Handle form submission
+                const form = document.getElementById('editItemForm');
+                form.addEventListener('submit', handleConfirmation);
+
+                // Reset flag when modal is hidden
+                document.getElementById('editItemModal').addEventListener('hidden.bs.modal', function() {
+                    isSubmitting = false;
+                });
+            });
             // Modify your existing addToCart function to show the edit modal first
             function addToCart(product) {
                 currentProduct = product;
@@ -585,18 +605,21 @@
                     return;
                 }
 
-                // Check if the product is already in the cart with the same price
+                // Check if the product is already in the cart with the same price and DR
                 const existingRow = Array.from(tbody.querySelectorAll('tr')).find(row => {
                     const rowSku = row.querySelector('th')?.textContent;
                     const rowPrice = parseFloat(row.querySelector('.price-input')?.value);
-                    return rowSku === product.product_sku && Math.abs(rowPrice - product.price) < 0.01;
+                    const rowDr = row.dataset.dr;
+                    return rowSku === product.product_sku &&
+                        Math.abs(rowPrice - product.price) < 0.01 &&
+                        rowDr === (product.dr || '');
                 });
 
                 if (existingRow) {
                     const quantityInput = existingRow.querySelector('.number-spinner');
                     const headInput = existingRow.querySelector('.head-input');
                     const newQuantity = parseFloat(quantityInput.value) + parseFloat(product.stock_kilos);
-                    const newHead = parseInt(headInput.value) + parseInt(product.head);
+                    const newHead = parseInt(headInput.value || 0) + parseInt(product.head || 0);
 
                     if (validateStock(existingRow, newQuantity, product.price)) {
                         quantityInput.value = newQuantity;
@@ -611,7 +634,10 @@
                     newRow.dataset.productId = product.product_id;
                     newRow.dataset.stockKilos = product.stock_kilos;
                     newRow.dataset.price = product.price;
-                    newRow.dataset.dr = product.dr || ''; // Add dr to dataset
+                    newRow.dataset.dr = product.dr || ''; // Store DR in dataset
+
+                    // Ensure head is properly initialized
+                    const head = parseInt(product.head || 0);
 
                     newRow.innerHTML = `
             <th>${product.product_sku}</th>
@@ -628,7 +654,7 @@
                 <div class="stock-info text-danger" style="display: none; font-size: 0.8rem; margin-top: 4px;"></div>
             </td>
             <td>
-                <input type="number" class="form-control head-input" value="${product.head}" min="0" style="width: 80px;">
+                <input type="number" class="form-control head-input" value="${head}" min="0" style="width: 80px;">
             </td>
             <td class="dr-column" style="display: none;">${product.dr || ''}</td>
             <td>
@@ -1260,7 +1286,11 @@
             // Function to calculate subtotal
             function calculateSubtotal() {
                 const subtotals = Array.from(document.querySelectorAll('.subtotal'))
-                    .map(el => parseFloat(el.textContent.replace('₱', '')) || 0)
+                    .map(el => {
+                        // Remove currency symbol and commas, then parse
+                        const value = parseFloat(el.textContent.replace(/[₱,\s]/g, '')) || 0;
+                        return value;
+                    })
                     .reduce((sum, value) => sum + value, 0);
                 return subtotals;
             }
@@ -1268,14 +1298,18 @@
             // Update the existing updateCartTotal function to handle discounts
             function updateCartTotal() {
                 const subtotals = calculateSubtotal();
-                document.getElementById('total').textContent = `₱${subtotals.toFixed(2)}`;
+
+                // Format the total with proper thousands separators
+                document.getElementById('total').textContent = formatCurrency(subtotals);
 
                 if (currentDiscount > 0) {
                     const discountAmount = (subtotals * currentDiscount) / 100;
                     const totalAfterDiscount = subtotals - discountAmount;
 
-                    document.getElementById('discount-amount').textContent = `₱${discountAmount.toFixed(2)}`;
-                    document.getElementById('total-after-discount').textContent = `₱${totalAfterDiscount.toFixed(2)}`;
+                    document.getElementById('discount-amount').textContent = formatCurrency(discountAmount);
+                    document.getElementById('total-after-discount').textContent = formatCurrency(totalAfterDiscount);
+                } else {
+                    document.getElementById('total-after-discount').textContent = formatCurrency(subtotals);
                 }
             }
 

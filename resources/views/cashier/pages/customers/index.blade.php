@@ -45,6 +45,7 @@
                                             <th>Address</th>
                                             <th>Phone</th>
                                             <th>Balance</th>
+                                            <th>Advance</th>
                                             <th>Actions</th>
                                         </tr>
                                     </thead>
@@ -56,6 +57,7 @@
                                                 <td>{{ $customer->Address }}</td>
                                                 <td>{{ $customer->PhoneNumber }}</td>
                                                 <td>{{ $customer->Balance }}</td>
+                                                <td>{{ $customer->advance_payment }}</td>
 
 
                                                 <td>

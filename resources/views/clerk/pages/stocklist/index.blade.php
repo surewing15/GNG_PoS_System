@@ -11,6 +11,7 @@
                 <table class="datatable-init-export nowrap table" data-export-title="Export">
                     <thead>
                         <tr>
+                            <th>Delivery receipt(DR)</th>
                             <th>Product (SKU)</th>
                             <th>Total Kilos</th>
                             <th>heads/pcs</th>
@@ -23,6 +24,7 @@
                     <tbody>
                         @foreach ($masterStocks as $stock)
                             <tr>
+                                <td>{{ $stock->dr }}</td>
                                 <td>{{ $stock->product->product_sku }}</td>
                                 <td>{{ $stock->total_all_kilos }}Kg</td>
                                 <td>{{ $stock->total_head }}.pcs</td>

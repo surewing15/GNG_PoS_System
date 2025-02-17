@@ -532,28 +532,115 @@
         }
 
         function updateAdvancePaymentDisplay(availableAdvance, grandTotal) {
-            const amountToUse = Math.min(availableAdvance, grandTotal);
-            availableAdvanceElement.textContent = `₱${availableAdvance.toFixed(2)}`;
+            const cleanAvailableAdvance = parseFloat(String(availableAdvance).replace(/[₱,\s]/g, ''));
+            const cleanGrandTotal = parseFloat(String(grandTotal).replace(/[₱,\s]/g, ''));
+            const amountToUse = Math.min(cleanAvailableAdvance, cleanGrandTotal);
+
+            availableAdvanceElement.textContent = `₱${cleanAvailableAdvance.toFixed(2)}`;
             advanceToUseElement.textContent = `₱${amountToUse.toFixed(2)}`;
 
-            if (availableAdvance < grandTotal) {
+            if (cleanAvailableAdvance < cleanGrandTotal) {
+                const remainingAmount = (cleanGrandTotal - cleanAvailableAdvance).toFixed(2);
                 insufficientAdvanceWarning.style.display = 'block';
-                insufficientAdvanceWarning.textContent =
-                    `Insufficient advance payment. Additional payment of ₱${(grandTotal - availableAdvance).toFixed(2)} required.`;
+                insufficientAdvanceWarning.innerHTML = `
+            <div class="alert alert-warning">
+                <p>Insufficient advance payment. Additional payment of ₱${remainingAmount} required.</p>
+                <div class="mt-2">
+                    <button class="btn btn-primary btn-sm me-2" onclick="handleAdditionalPayment('cash')">
+                        Pay with Cash
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="handleAdditionalPayment('credit')">
+                        Add to Balance
+                    </button>
+                </div>
+            </div>`;
             } else {
                 insufficientAdvanceWarning.style.display = 'none';
             }
 
-            // Update amount paid input
             document.getElementById('amount-paid').value = amountToUse.toFixed(2);
             document.getElementById('change-amount').value = '0.00';
         }
+        window.handleAdditionalPayment = async function(type) {
+            const grandTotal = parseFloat(document.querySelector('.receipt-total .fw-bold span')
+                .textContent.replace(/[₱,\s]/g, ''));
+            const availableAdvance = parseFloat(document.getElementById('availableAdvance').textContent
+                .replace(/[₱,\s]/g, ''));
+            const remainingAmount = grandTotal - availableAdvance;
+
+            if (type === 'cash') {
+                // Show cash payment input
+                const {
+                    value: cashAmount
+                } = await Swal.fire({
+                    title: 'Enter Cash Amount',
+                    input: 'number',
+                    inputLabel: `Additional Payment Required: ₱${remainingAmount.toFixed(2)}`,
+                    inputValue: remainingAmount.toFixed(2),
+                    showCancelButton: true,
+                    inputValidator: (value) => {
+                        if (!value || parseFloat(value) < remainingAmount) {
+                            return 'Please enter sufficient amount!';
+                        }
+                    }
+                });
+
+                if (cashAmount) {
+                    // Update payment amounts
+                    const totalPaid = availableAdvance + parseFloat(cashAmount);
+                    document.getElementById('amount-paid').value = totalPaid.toFixed(2);
+                    const change = totalPaid - grandTotal;
+                    document.getElementById('change-amount').value = change.toFixed(2);
+
+                    // Update warning message
+                    insufficientAdvanceWarning.innerHTML = `
+                <div class="alert alert-success">
+                    <p>Payment completed with:</p>
+                    <p>Advance Payment: ₱${availableAdvance.toFixed(2)}</p>
+                    <p>Cash Payment: ₱${cashAmount}</p>
+                    <p>Change: ₱${change.toFixed(2)}</p>
+                </div>`;
+                }
+            } else if (type === 'credit') {
+                // Show confirmation for adding to balance
+                const {
+                    isConfirmed
+                } = await Swal.fire({
+                    title: 'Confirm Balance Addition',
+                    html: `
+                <p>The remaining amount of ₱${remainingAmount.toFixed(2)} will be added to the customer's balance.</p>
+                <p>Advance Payment Used: ₱${availableAdvance.toFixed(2)}</p>
+                <p>Amount to Credit: ₱${remainingAmount.toFixed(2)}</p>
+            `,
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'Yes, add to balance',
+                    cancelButtonText: 'Cancel'
+                });
+
+                if (isConfirmed) {
+                    // Update payment display
+                    document.getElementById('amount-paid').value = availableAdvance.toFixed(2);
+                    document.getElementById('change-amount').value = '0.00';
+
+                    // Update warning message
+                    insufficientAdvanceWarning.innerHTML = `
+                <div class="alert alert-info">
+                    <p>Payment split:</p>
+                    <p>Advance Payment: ₱${availableAdvance.toFixed(2)}</p>
+                    <p>Added to Balance: ₱${remainingAmount.toFixed(2)}</p>
+                </div>`;
+                }
+            }
+        };
 
         async function handlePaymentTypeChange() {
             const selectedValue = paymentTypeSelect.value;
             const customerId = document.getElementById('selected-customer-id').value;
-            const grandTotal = parseFloat(document.querySelector('.receipt-total .fw-bold span')
-                .textContent.replace('₱', '')) || 0;
+
+            // Clean up the grand total parsing
+            const grandTotalElement = document.querySelector('.receipt-total .fw-bold span');
+            const grandTotal = parseFloat(grandTotalElement.textContent.replace(/[₱,\s]/g, '')) || 0;
 
             // Reset displays
             paymentSection.style.display = 'block';
@@ -570,8 +657,12 @@
                 const availableAdvance = await fetchCustomerBalance(customerId);
                 advancePaymentInfo.style.display = 'block';
                 paymentSection.style.display = 'none';
-                updateAdvancePaymentDisplay(availableAdvance, grandTotal);
 
+                // Add debugging logs
+                console.log('Available Advance:', availableAdvance);
+                console.log('Grand Total:', grandTotal);
+
+                updateAdvancePaymentDisplay(availableAdvance, grandTotal);
             } else if (selectedValue === 'online') {
                 referenceNumberContainer.style.display = 'block';
                 paymentSection.style.display = 'none';
@@ -579,56 +670,280 @@
                 paymentSection.style.display = 'none';
             }
         }
-
         // Add event listeners
         if (paymentTypeSelect) {
             paymentTypeSelect.addEventListener('change', handlePaymentTypeChange);
         }
+        window.handleInsufficientAdvancePayment = async function(totalAmount, availableAdvance) {
+            const remainingAmount = totalAmount - availableAdvance;
+
+            const {
+                value: choice,
+                isConfirmed
+            } = await Swal.fire({
+                title: 'Insufficient Advance Payment',
+                html: `
+            <div class="text-left">
+                <p>Total Amount: ₱${totalAmount.toFixed(2)}</p>
+                <p>Advance Payment Used: ₱${availableAdvance.toFixed(2)}</p>
+                <p>Remaining Amount: ₱${remainingAmount.toFixed(2)}</p>
+            </div>
+        `,
+                input: 'radio',
+                inputOptions: {
+                    'cash': 'Pay remaining with cash',
+                    'credit': 'Add to customer balance'
+                },
+                inputValidator: (value) => {
+                    if (!value) {
+                        return 'Please select an option!';
+                    }
+                },
+                showCancelButton: true,
+                confirmButtonText: 'Continue',
+                cancelButtonText: 'Cancel',
+                customClass: {
+                    container: 'insufficient-advance-modal'
+                }
+            });
+
+            if (!isConfirmed) return null;
+
+            if (choice === 'cash') {
+                const {
+                    value: cashAmount,
+                    isConfirmed: cashConfirmed
+                } = await Swal.fire({
+                    title: 'Enter Cash Amount',
+                    input: 'number',
+                    inputValue: remainingAmount.toFixed(2),
+                    inputAttributes: {
+                        step: '0.01',
+                        min: remainingAmount.toFixed(2)
+                    },
+                    showCancelButton: true,
+                    confirmButtonText: 'OK',
+                    cancelButtonText: 'Cancel'
+                });
+
+                if (!cashConfirmed) return null;
+
+                return {
+                    type: 'cash',
+                    advanceUsed: availableAdvance,
+                    cashAmount: parseFloat(cashAmount),
+                    creditAmount: 0
+                };
+            } else {
+                return {
+                    type: 'credit',
+                    advanceUsed: availableAdvance,
+                    cashAmount: 0,
+                    creditAmount: remainingAmount
+                };
+            }
+        };
 
 
         // Inside the confirmPayment function
         window.confirmPayment = async function() {
+            // Get the confirm button early
+            const confirmButton = document.querySelector('button.btn-success');
+
+            // If already submitting, exit early
             if (isSubmitting) return;
 
             try {
-                const confirmButton = document.querySelector('button.btn-success');
                 const paymentType = document.getElementById('paymentType').value;
-                const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
                 const grandTotal = parseFloat(document.querySelector('.receipt-total .fw-bold span')
                     .textContent.replace(/[₱,\s]/g, '')) || 0;
                 const subtotal = parseFloat(document.querySelector(
-                        '.receipt-total .mb-2:first-child span').textContent.replace(/[₱,\s]/g, '')) ||
-                    0;
+                        '.receipt-total .mb-2:first-child span')
+                    .textContent.replace(/[₱,\s]/g, '')) || 0;
                 const discountAmount = parseFloat(document.querySelector(
-                    '.receipt-total .mb-2:nth-child(2) span').textContent.replace(/[₱,\s]/g,
-                    '')) || 0;
+                        '.receipt-total .mb-2:nth-child(2) span')
+                    .textContent.replace(/[₱,\s]/g, '')) || 0;
                 const discountPercentage = parseFloat(document.getElementById('discount-input').value ||
                     '0');
                 const customerId = document.getElementById('selected-customer-id').value;
 
-                // Calculate credit charge
-                const creditCharge = Math.max(0, grandTotal - amountPaid);
-                console.log('Credit charge calculation:', {
-                    grandTotal,
-                    amountPaid,
-                    creditCharge
-                });
+                // Validate reference number for online payment before setting isSubmitting
+                if (paymentType === 'online') {
+                    const referenceNumber = document.getElementById('reference-number').value;
+                    if (!referenceNumber) {
+                        await Swal.fire({
+                            icon: 'error',
+                            title: 'Error',
+                            text: 'Reference number is required for online payment'
+                        });
+                        // Focus the reference number input
+                        document.getElementById('reference-number').focus();
+                        return;
+                    }
+                }
 
+                // Validate customer selection before setting isSubmitting
+                if (!customerId) {
+                    await Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: 'Please select a customer'
+                    });
+                    return;
+                }
+
+                // Only set submission state after initial validations pass
                 isSubmitting = true;
                 confirmButton.disabled = true;
 
-                // Show confirmation for credit charges
-                if (creditCharge > 0) {
+                // Rest of your existing code for building transactionData...
+                let transactionData = {
+                    customer_id: parseInt(customerId),
+                    service_type: document.getElementById('serviceType').value,
+                    payment_type: paymentType,
+                    items: Array.from(document.querySelector('.table-striped tbody').rows).map(
+                        row => ({
+                            product_id: parseInt(row.dataset.productId),
+                            kilos: parseFloat(row.querySelector('.number-spinner').value),
+                            head: parseInt(row.querySelector('.head-input').value) || 0,
+                            dr: row.dataset.dr || '',
+                            price_per_kilo: parseFloat(row.querySelector('.price-input')
+                                .value),
+                            total: parseFloat(row.querySelector('.number-spinner').value) *
+                                parseFloat(row.querySelector('.price-input').value)
+                        })),
+                    subtotal: subtotal,
+                    discount_percentage: discountPercentage,
+                    discount_amount: discountAmount,
+                    total_amount: grandTotal,
+                    receipt_id: document.getElementById('receiptID').textContent,
+                    status: document.getElementById('serviceType').value === 'deliver' ?
+                        'Not Assigned' : null
+                };
+
+                // Handle different payment types
+                if (paymentType === 'online') {
+                    const referenceNumber = document.getElementById('reference-number').value;
+                    if (!referenceNumber) {
+                        throw new Error('Reference number is required for online payment');
+                    }
+                    transactionData = {
+                        ...transactionData,
+                        reference_number: referenceNumber,
+                        amount_paid: grandTotal, // Full amount for online payment
+                        credit_charge: 0, // No credit charge for online payment
+                        change_amount: 0
+                    };
+                } else if (paymentType === 'advance_payment') {
+                    const availableAdvance = parseFloat(document.getElementById('availableAdvance')
+                        .textContent.replace(/[₱,\s]/g, '')) || 0;
+                    const advancePaymentUsed = Math.min(availableAdvance, grandTotal);
+                    const remainingAmount = grandTotal - advancePaymentUsed;
+
+                    if (remainingAmount > 0) {
+                        const {
+                            isConfirmed,
+                            value: paymentChoice
+                        } = await Swal.fire({
+                            title: 'Insufficient Advance Payment',
+                            html: `
+                    <div class="text-left">
+                        <p>Total Amount: ₱${grandTotal.toFixed(2)}</p>
+                        <p>Advance Payment Used: ₱${advancePaymentUsed.toFixed(2)}</p>
+                        <p class="font-weight-bold">Remaining Amount: ₱${remainingAmount.toFixed(2)}</p>
+                    </div>`,
+                            input: 'radio',
+                            inputOptions: {
+                                'cash': 'Pay remaining with cash',
+                                'credit': 'Add to customer balance'
+                            },
+                            inputValidator: (value) => {
+                                if (!value) return 'Please choose an option!';
+                            },
+                            showCancelButton: true,
+                            confirmButtonText: 'Continue',
+                            cancelButtonText: 'Cancel'
+                        });
+
+                        if (!isConfirmed) {
+                            isSubmitting = false;
+                            confirmButton.disabled = false;
+                            return;
+                        }
+
+                        if (paymentChoice === 'cash') {
+                            const {
+                                value: cashAmount,
+                                isConfirmed: cashConfirmed
+                            } = await Swal.fire({
+                                title: 'Enter Cash Amount',
+                                input: 'number',
+                                inputLabel: `Amount Required: ₱${remainingAmount.toFixed(2)}`,
+                                inputValue: remainingAmount.toFixed(2),
+                                showCancelButton: true,
+                                inputValidator: (value) => {
+                                    if (!value || parseFloat(value) < remainingAmount) {
+                                        return 'Please enter sufficient amount!';
+                                    }
+                                }
+                            });
+
+                            if (!cashConfirmed) {
+                                isSubmitting = false;
+                                confirmButton.disabled = false;
+                                return;
+                            }
+
+                            transactionData = {
+                                ...transactionData,
+                                advance_payment_used: advancePaymentUsed,
+                                amount_paid: parseFloat(cashAmount),
+                                credit_charge: 0,
+                                change_amount: parseFloat(cashAmount) - remainingAmount
+                            };
+                        } else {
+                            transactionData = {
+                                ...transactionData,
+                                advance_payment_used: advancePaymentUsed,
+                                amount_paid: advancePaymentUsed,
+                                credit_charge: remainingAmount,
+                                change_amount: 0
+                            };
+                        }
+                    } else {
+                        transactionData = {
+                            ...transactionData,
+                            advance_payment_used: advancePaymentUsed,
+                            amount_paid: advancePaymentUsed,
+                            credit_charge: 0,
+                            change_amount: 0
+                        };
+                    }
+                } else {
+                    // Regular payment types (cash, debit)
+                    const amountPaid = parseFloat(document.getElementById('amount-paid').value) || 0;
+                    transactionData = {
+                        ...transactionData,
+                        amount_paid: amountPaid,
+                        credit_charge: Math.max(0, grandTotal - amountPaid),
+                        change_amount: Math.max(0, amountPaid - grandTotal)
+                    };
+                }
+
+                // Show confirmation for credit charges if any
+                if (transactionData.credit_charge > 0) {
                     const confirmCredit = await Swal.fire({
                         title: 'Credit Charge Confirmation',
                         html: `
-                    <div class="text-left">
-                        <p>Total Amount: ₱${grandTotal.toFixed(2)}</p>
-                        <p>Amount Paid: ₱${amountPaid.toFixed(2)}</p>
-                        <p class="font-weight-bold text-danger">Credit Charge: ₱${creditCharge.toFixed(2)}</p>
-                    </div>
-                    <p class="mt-3">This amount will be added as credit charge to the customer's balance. Continue?</p>
-                `,
+                <div class="text-left">
+                    <p>Total Amount: ₱${grandTotal.toFixed(2)}</p>
+                    ${transactionData.advance_payment_used > 0 ?
+                        `<p>Advance Payment Used: ₱${transactionData.advance_payment_used.toFixed(2)}</p>` : ''}
+                    ${transactionData.amount_paid > 0 ?
+                        `<p>Amount Paid: ₱${transactionData.amount_paid.toFixed(2)}</p>` : ''}
+                    <p class="font-weight-bold text-danger">Credit Charge: ₱${transactionData.credit_charge.toFixed(2)}</p>
+                </div>
+                <p class="mt-3">This amount will be added as credit charge to the customer's balance. Continue?</p>`,
                         icon: 'warning',
                         showCancelButton: true,
                         confirmButtonText: 'Yes, continue',
@@ -641,47 +956,6 @@
                         return;
                     }
                 }
-
-                // Prepare transaction data with credit charge
-                const transactionData = {
-                    customer_id: parseInt(customerId),
-                    service_type: document.getElementById('serviceType').value,
-                    payment_type: paymentType,
-                    items: Array.from(document.querySelector('.table-striped tbody').rows).map(
-                        row => {
-                            const kilos = parseFloat(row.querySelector('.number-spinner')
-                            .value);
-                            const price_per_kilo = parseFloat(row.querySelector('.price-input')
-                                .value);
-                            const total = kilos * price_per_kilo; // Calculate total explicitly
-
-                            // Add validation here
-                            if (Math.abs(total - (kilos * price_per_kilo)) > 0.01) {
-                                throw new Error('Total calculation mismatch');
-                            }
-
-                            return {
-                                product_id: parseInt(row.dataset.productId),
-                                kilos: kilos,
-                                head: parseInt(row.querySelector('.head-input').value) || 0,
-                                dr: row.dataset.dr || '',
-                                price_per_kilo: price_per_kilo,
-                                total: total // Use calculated total
-                            };
-                        }),
-                    subtotal: subtotal,
-                    discount_percentage: discountPercentage,
-                    discount_amount: discountAmount,
-                    total_amount: grandTotal,
-                    amount_paid: amountPaid,
-                    credit_charge: creditCharge,
-                    change_amount: Math.max(0, amountPaid - grandTotal),
-                    receipt_id: document.getElementById('receiptID').textContent,
-                    status: document.getElementById('serviceType').value === 'deliver' ?
-                        'Not Assigned' : null
-                };
-
-                console.log('Sending transaction data:', transactionData);
 
                 // Send transaction to server
                 const response = await fetch('/save-transaction', {
@@ -696,18 +970,28 @@
                 });
 
                 const result = await response.json();
-                console.log('Server response:', result);
-
                 if (!result.success) {
                     throw new Error(result.message || 'Transaction failed');
                 }
 
-                // Handle success with credit charge message
-                let message = `Payment successful! Transaction ID: ${result.transaction_id}`;
-                if (creditCharge > 0) {
+                // Create success message with payment breakdown
+                let message = `Payment successful! Transaction ID: ${result.transaction_id}<br><br>`;
+                message += '<div class="text-left">';
+                if (transactionData.advance_payment_used > 0) {
                     message +=
-                        `<br><span class="text-danger">Credit charge of ₱${creditCharge.toFixed(2)} has been added to customer's balance.</span>`;
+                        `<p>Advance Payment: ₱${transactionData.advance_payment_used.toFixed(2)}</p>`;
                 }
+                if (transactionData.amount_paid > 0) {
+                    message += `<p>Amount Paid: ₱${transactionData.amount_paid.toFixed(2)}</p>`;
+                }
+                if (transactionData.credit_charge > 0) {
+                    message +=
+                        `<p class="text-danger">Added to Balance: ₱${transactionData.credit_charge.toFixed(2)}</p>`;
+                }
+                if (transactionData.change_amount > 0) {
+                    message += `<p>Change: ₱${transactionData.change_amount.toFixed(2)}</p>`;
+                }
+                message += '</div>';
 
                 // Close modal and show success message
                 const modal = bootstrap.Modal.getInstance(document.getElementById('invoiceModal'));

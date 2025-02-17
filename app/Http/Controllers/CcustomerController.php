@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\CustomerModel;
 use App\Models\PaymentModel;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 
 class CcustomerController extends Controller
 {
@@ -80,7 +81,11 @@ class CcustomerController extends Controller
             'bank_name' => 'required_if:payment_method,bank'
         ]);
 
+        // Add user_id to the validated data
+        $validated['user_id'] = Auth::id();
+
         DB::transaction(function () use ($validated) {
+            // Create payment with user_id included
             $payment = PaymentModel::create($validated);
 
             $customer = CustomerModel::find($validated['customer_id']);

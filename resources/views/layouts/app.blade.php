@@ -36,6 +36,11 @@
             border-radius: 4px;
             transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
         }
+
+        html,
+        body {
+            overflow-x: hidden;
+        }
     </style>
     @livewireStyles
     <style>

@@ -29,7 +29,7 @@
                                     @endphp
 
                                     <div
-                                        class="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-semibold">
+                                        class="w-10 h-10 rounded-full bg-red-700 flex items-center justify-center text-white font-semibold">
                                         {{ $initials }}
                                     </div>
                                 </div>

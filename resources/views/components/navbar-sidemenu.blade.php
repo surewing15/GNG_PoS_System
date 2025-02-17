@@ -164,15 +164,15 @@
                         <li class="nk-menu-item">
                             <a href="/clerk/stocks" class="nk-menu-link">
                                 <span class="nk-menu-icon"><em class="icon ni ni-package-fill"></em></span>
-                                <span class="nk-menu-text">Stock List</span>
+                                <span class="nk-menu-text">Remaining Stock List</span>
                             </a>
                         </li>
-                        <li class="nk-menu-item">
+                        {{-- <li class="nk-menu-item">
                             <a href="/logs/stocks" class="nk-menu-link">
                                 <span class="nk-menu-icon"><em class="icon ni ni-package-fill"></em></span>
                                 <span class="nk-menu-text">Stock Logs</span>
                             </a>
-                        </li>
+                        </li> --}}
                         <li class="nk-menu-item">
                             <a href="/stock/history" class="nk-menu-link">
                                 <span class="nk-menu-icon"><em class="icon ni ni-package-fill"></em></span>
@@ -184,6 +184,12 @@
                             <a href="/condemn/stocks" class="nk-menu-link">
                                 <span class="nk-menu-icon"><em class="icon ni ni-package-fill"></em></span>
                                 <span class="nk-menu-text">Condemn</span>
+                            </a>
+                        </li>
+                        <li class="nk-menu-item">
+                            <a href="/stocks/inventory" class="nk-menu-link">
+                                <span class="nk-menu-icon"><em class="icon ni ni-package-fill"></em></span>
+                                <span class="nk-menu-text">Inventory</span>
                             </a>
                         </li>
                     @endif

@@ -35,7 +35,7 @@
             </div>
         </div>
 
-        {{-- <div class="card mb-4">
+        <div class="card mb-4">
             <div class="card-body">
                 <form method="GET" action="/cashier/report" class="row g-3">
                     <div class="col-md-4">
@@ -60,10 +60,10 @@
                     </div>
                 </form>
             </div>
-        </div> --}}
+        </div>
 
 
-        {{-- <div class="row mb-4">
+        <div class="row mb-4">
             <div class="col-md-3">
                 <div class="card bg-primary text-white">
                     <div class="card-body">
@@ -96,7 +96,7 @@
                     </div>
                 </div>
             </div>
-        </div> --}}
+        </div>
 
         <!-- Transactions Table -->
         <div class="card">
@@ -124,7 +124,13 @@
                                     <td>{{ $item->product->product_sku }}</td>
                                     <td>{{ number_format($item->kilos, 2) }}</td>
                                     <td>₱{{ number_format($item->price_per_kilo, 2) }}</td>
-                                    <td>₱{{ number_format($item->total, 2) }}</td>
+                                    <td>
+                                        @if ($item->transaction->payment_type === 'advance_payment')
+                                            ₱{{ number_format($item->transaction->amount_paid, 2) }}
+                                        @else
+                                            ₱{{ number_format($item->total, 2) }}
+                                        @endif
+                                    </td>
                                     <td>{{ optional($item->transaction->customer)->FirstName }}
                                         {{ optional($item->transaction->customer)->LastName }}</td>
                                     <td>

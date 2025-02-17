@@ -37,6 +37,7 @@ use App\Http\Controllers\ExportController;
 use App\Http\Controllers\GenerateReportController;
 use App\Http\Controllers\CreportController;
 use App\Http\Controllers\PrinterController;
+use App\Http\Controllers\CinventoryControlller;
 use Illuminate\Support\Facades\DB;
 Route::get('/', function () {
     return view('auth.login');
@@ -189,6 +190,7 @@ Route::middleware([
         Route::post('/sales/update-service-type', [SalesController::class, 'updateServiceType']);
         Route::get('/collection', [CashierController::class, 'collection'])->name('cashier.collection');
     });
+    Route::get('/cleanup-empty-stocks', [CashierController::class, 'cleanupEmptyStocks']);
     Route::post('/save-transaction', [CashierController::class, 'saveTransaction']);
     // Route::post('/save-transaction', [TransactionController::class, 'saveTransaction']);
 
@@ -314,4 +316,10 @@ Route::middleware([
     Route::post('/update-stock', [CashierController::class, 'updateStock']);
     Route::post('/cart/clear', [CashierController::class, 'clearCart'])->name('cart.clear');
 
+
+    Route::get('/stocks/inventory', [CinventoryControlller::class, 'index'])->name('inventory.index');
+    Route::post('/stocks/inventory', [CinventoryControlller::class, 'store'])->name('inventory.store');
+    Route::put('/stocks/inventory/{id}', [CinventoryControlller::class, 'update'])->name('inventory.update');
+    Route::delete('/stocks/inventory/{id}', [CinventoryControlller::class, 'destroy'])->name('inventory.destroy');
+    Route::get('/stocks/inventory/export', [CinventoryControlller::class, 'export'])->name('inventory.export');
 });

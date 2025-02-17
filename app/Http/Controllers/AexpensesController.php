@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\ExpenseModel;
+use Illuminate\Support\Facades\Auth;
 class AexpensesController extends Controller
 {
     public function index()
@@ -25,9 +26,12 @@ class AexpensesController extends Controller
             'e_amount' => $request->input('expenses_amount'),
             'e_withdraw_by' => $request->input('withdraw_by') ?? null,
             'e_recieve_by' => $request->input('recieve_by') ?? null,
+            'user_id' => Auth::id(),
         ]);
+
         return redirect()->back()->with('success', 'Expense created successfully!');
     }
+
     public function returnCash(Request $request, ExpenseModel $expense)
     {
         $request->validate([
