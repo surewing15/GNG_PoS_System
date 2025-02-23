@@ -187,154 +187,201 @@ class CashierController extends Controller
 
 
 
-public function saveTransaction(Request $request)
-{
-    try {
-        DB::beginTransaction();
+    public function saveTransaction(Request $request)
+    {
+        try {
+            DB::beginTransaction();
 
-        $baseValidation = [
-            'customer_id' => 'required|exists:tbl_customers,CustomerID',
-            'service_type' => 'required|string',
-            'payment_type' => 'required|string',
-            'items' => 'required|array',
-            'items.*.product_id' => 'required|exists:tbl_product,product_id',
-            'items.*.kilos' => 'required|numeric|min:0',
-            'items.*.head' => 'nullable|integer|min:0',
-            'items.*.dr' => 'nullable|string',
-            'items.*.price_per_kilo' => 'required|numeric|min:0',
-            'items.*.total' => 'required|numeric|min:0',
-            'total_amount' => 'required|numeric|min:0',
-            'subtotal' => 'required|numeric|min:0',
-            'discount_percentage' => 'required|numeric|min:0',
-            'discount_amount' => 'required|numeric|min:0'
-        ];
+            // Log the incoming request data
+            \Log::info('Received transaction data:', $request->all());
 
-        // Add conditional validation rules based on payment type
-        if ($request->payment_type === 'online') {
-            $baseValidation['reference_number'] = 'required|string';
-            $baseValidation['amount_paid'] = 'required|numeric|min:0|same:total_amount';
-        } else {
-            $baseValidation['amount_paid'] = 'required|numeric|min:0';
-            $baseValidation['advance_payment_used'] = 'nullable|numeric|min:0';
-            $baseValidation['credit_charge'] = 'nullable|numeric|min:0';
-        }
+            // Validate the request
+            $baseValidation = [
+                'customer_id' => 'required|exists:tbl_customers,CustomerID',
+                'service_type' => 'required|string',
+                'payment_type' => 'required|string',
+                'receipt_id' => 'required|string',
+                'items' => 'required|array',
+                'items.*.product_id' => 'required|exists:tbl_product,product_id',
+                'items.*.kilos' => 'required|numeric|min:0',
+                'items.*.head' => 'nullable|integer|min:0',
+                'items.*.dr' => 'nullable|string',
+                'items.*.price_per_kilo' => 'required|numeric|min:0',
+                'items.*.total' => 'required|numeric|min:0',
+                'total_amount' => 'required|numeric|min:0',
+                'subtotal' => 'required|numeric|min:0',
+                'discount_percentage' => 'required|numeric|min:0',
+                'discount_amount' => 'required|numeric|min:0',
+                'amount_paid' => 'required|numeric|min:0',
+                'change_amount' => 'required|numeric|min:0',
+                'credit_charge' => 'nullable|numeric|min:0',
+                'reference_number' => 'required_if:payment_type,online',
+                'advance_payment_used' => 'required_if:payment_type,advance_payment|numeric|min:0'
+            ];
 
-        $validated = $request->validate($baseValidation);
+            $validated = $request->validate($baseValidation);
 
-        // Get customer with lock for update
-        $customer = CustomerModel::lockForUpdate()->find($validated['customer_id']);
-        if (!$customer) {
-            throw new \Exception('Customer not found');
-        }
+            // Get customer with lock for update
+            $customer = CustomerModel::lockForUpdate()->find($validated['customer_id']);
+            if (!$customer) {
+                throw new \Exception('Customer not found');
+            }
 
-        // Initialize payment variables
-        $advancePaymentUsed = 0;
-        $cashPayment = 0;
-        $creditCharge = 0;
-        $referenceNumber = null;
+            $totalAmount = $validated['total_amount'];
+            $amountPaid = $validated['amount_paid'];
+            $changeAmount = $validated['change_amount'];
+            $creditCharge = $validated['credit_charge'] ?? 0;
 
-        // Handle different payment types
-        switch ($validated['payment_type']) {
-            case 'online':
-                $cashPayment = $validated['total_amount']; // Full amount for online payments
-                $creditCharge = 0; // No credit charge for online payments
-                $referenceNumber = $validated['reference_number'];
-                break;
+            // Handle different payment types
+            switch ($validated['payment_type']) {
+                case 'cash':
+                    // Verify the payment amounts add up correctly
+                    $expectedPayment = $totalAmount - $creditCharge;
+                    if ($amountPaid < $expectedPayment) {
+                        throw new \Exception('Insufficient payment amount for the non-credit portion');
+                    }
+                    break;
 
-            case 'advance_payment':
-                // Existing advance payment logic...
-                break;
+                case 'debit':
+                    // For debit, entire amount goes to credit charge
+                    $creditCharge = $totalAmount;
+                    $amountPaid = 0;
+                    $changeAmount = 0;
+                    break;
 
-            default:
-                // Existing logic for other payment types...
-                break;
-        }
+                case 'online':
+                    // For online payments, verify reference number
+                    if (empty($validated['reference_number'])) {
+                        throw new \Exception('Reference number is required for online payments');
+                    }
+                    $creditCharge = 0;
+                    $amountPaid = $totalAmount;
+                    $changeAmount = 0;
+                    break;
 
-        // Update customer balance only if there's a credit charge
-        if ($creditCharge > 0) {
-            $customer->Balance += $creditCharge;
-            $customer->save();
-        }
+                case 'advance_payment':
+                    // Verify advance payment amount
+                    $advancePaymentUsed = $validated['advance_payment_used'] ?? 0;
+                    if ($advancePaymentUsed > $customer->advance_payment) {
+                        throw new \Exception('Insufficient advance payment balance');
+                    }
 
-        // Create transaction record
-        $transaction = TransactionModel::create([
-            'CustomerID' => $validated['customer_id'],
-            'user_id' => Auth::id(),
-            'service_type' => $validated['service_type'],
-            'payment_type' => $validated['payment_type'],
-            'reference_number' => $referenceNumber,
-            'subtotal' => $validated['subtotal'],
-            'discount_percentage' => $validated['discount_percentage'],
-            'discount_amount' => $validated['discount_amount'],
-            'total_amount' => $validated['total_amount'],
-            'amount_paid' => $cashPayment,
-            'advance_payment_used' => $advancePaymentUsed,
-            'credit_charge' => $creditCharge,
-            'change_amount' => max(0, ($cashPayment + $advancePaymentUsed) - $validated['total_amount']),
-            'receipt_id' => $request->receipt_id,
-            'status' => $validated['service_type'] === 'deliver' ? 'Not Assigned' : null,
-            'date' => now()->setTimezone('Asia/Manila'),
-            'created_at' => now()->setTimezone('Asia/Manila'),
-            'updated_at' => now()->setTimezone('Asia/Manila')
-        ]);
+                    // Update customer's advance payment balance
+                    $customer->advance_payment -= $advancePaymentUsed;
 
-        // Create transaction items and update stock
-        foreach ($validated['items'] as $item) {
-            $transaction->items()->create([
-                'product_id' => $item['product_id'],
+                    // If there's remaining amount after advance payment
+                    $remainingAmount = $totalAmount - $advancePaymentUsed;
+                    if ($remainingAmount > 0) {
+                        $creditCharge = $remainingAmount;
+                    }
+
+                    $amountPaid = $advancePaymentUsed;
+                    $changeAmount = 0;
+                    break;
+
+                default:
+                    throw new \Exception('Invalid payment type');
+            }
+
+            // If there's a credit charge, add it to customer's balance
+            if ($creditCharge > 0) {
+                $customer->Balance += $creditCharge;
+            }
+
+            // Save customer changes if needed
+            if ($creditCharge > 0 || $validated['payment_type'] === 'advance_payment') {
+                $customer->save();
+            }
+
+            // Create transaction record
+            $transaction = TransactionModel::create([
+                'CustomerID' => $validated['customer_id'],
                 'user_id' => Auth::id(),
-                'kilos' => $item['kilos'],
-                'head' => $item['head'] ?? 0,
-                'dr' => $item['dr'] ?? '',
-                'price_per_kilo' => $item['price_per_kilo'],
-                'total' => $item['total']
+                'service_type' => $validated['service_type'],
+                'payment_type' => $validated['payment_type'],
+                'subtotal' => $validated['subtotal'],
+                'discount_percentage' => $validated['discount_percentage'],
+                'discount_amount' => $validated['discount_amount'],
+                'total_amount' => $totalAmount,
+                'amount_paid' => $amountPaid,
+                'change_amount' => $changeAmount,
+                'credit_charge' => $creditCharge,
+                'receipt_id' => $validated['receipt_id'],
+                'reference_number' => $validated['reference_number'] ?? null,
+                'advance_payment_used' => $validated['advance_payment_used'] ?? null,
+                'status' => $validated['service_type'] === 'deliver' ? 'Not Assigned' : null,
+                'date' => now()->setTimezone('Asia/Manila'),
+                'created_at' => now()->setTimezone('Asia/Manila'),
+                'updated_at' => now()->setTimezone('Asia/Manila')
             ]);
 
-            // Update stock levels
-            $masterStock = MasterStockModel::where('product_id', $item['product_id'])
-                ->lockForUpdate()
-                ->first();
+            // Process items and update stock
+            foreach ($validated['items'] as $item) {
+                // Create transaction item
+                $transaction->items()->create([
+                    'product_id' => $item['product_id'],
+                    'user_id' => Auth::id(),
+                    'kilos' => $item['kilos'],
+                    'head' => $item['head'] ?? 0,
+                    'dr' => $item['dr'] ?? '',
+                    'price_per_kilo' => $item['price_per_kilo'],
+                    'total' => $item['total']
+                ]);
 
-            if (!$masterStock) {
-                throw new \Exception("Stock not found for product ID: {$item['product_id']}");
-            }
+                // Update stock levels
+                $masterStock = MasterStockModel::where('product_id', $item['product_id'])
+                    ->lockForUpdate()
+                    ->first();
 
-            if ($masterStock->total_all_kilos < $item['kilos']) {
-                throw new \Exception("Insufficient kilos in stock for product ID: {$item['product_id']}");
-            }
-
-            $masterStock->total_all_kilos -= $item['kilos'];
-            if (isset($item['head']) && $item['head'] > 0) {
-                if ($masterStock->total_head < $item['head']) {
-                    throw new \Exception("Insufficient head count in stock for product ID: {$item['product_id']}");
+                if (!$masterStock) {
+                    throw new \Exception("Stock not found for product ID: {$item['product_id']}");
                 }
-                $masterStock->total_head -= $item['head'];
+
+                if ($masterStock->total_all_kilos < $item['kilos']) {
+                    throw new \Exception("Insufficient kilos in stock for product ID: {$item['product_id']}");
+                }
+
+                $masterStock->total_all_kilos -= $item['kilos'];
+                if (isset($item['head']) && $item['head'] > 0) {
+                    if ($masterStock->total_head < $item['head']) {
+                        throw new \Exception("Insufficient head count in stock for product ID: {$item['product_id']}");
+                    }
+                    $masterStock->total_head -= $item['head'];
+                }
+
+                $masterStock->save();
             }
 
-            $masterStock->save();
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'transaction_id' => $transaction->id,
+                'message' => 'Transaction completed successfully',
+                'transaction_details' => [
+                    'payment_type' => $validated['payment_type'],
+                    'amount_paid' => $amountPaid,
+                    'change_amount' => $changeAmount,
+                    'credit_charge' => $creditCharge,
+                    'total_amount' => $totalAmount,
+                    'advance_payment_used' => $validated['advance_payment_used'] ?? null,
+                    'reference_number' => $validated['reference_number'] ?? null
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Transaction error:', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
         }
-
-        DB::commit();
-
-        return response()->json([
-            'success' => true,
-            'transaction_id' => $transaction->id,
-            'message' => 'Transaction completed successfully'
-        ]);
-
-    } catch (\Exception $e) {
-        DB::rollBack();
-        \Log::error('Transaction error:', [
-            'message' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ]);
-
-        return response()->json([
-            'success' => false,
-            'message' => $e->getMessage()
-        ], 500);
     }
-}
     public function cleanupEmptyStocks()
     {
         try {

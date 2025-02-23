@@ -57,6 +57,8 @@
                                 <option value="600GRMS">600GRMS</option>
                                 <option value="PCK.">PCK.</option>
                                 <option value="KG.">KG.</option>
+                                <option value="tray.">TRAY.</option>
+
 
                             </select>
                         </div>
@@ -64,14 +66,14 @@
                 </div>
 
 
-                <div class="col-12">
+                {{-- <div class="col-12">
                     <div class="form-group">
                         <label class="form-label" for="p_price">Price</label>
                         <div class="form-control-wrap">
                             <input type="text" name="p_price" class="form-control" id="p_price" required>
                         </div>
                     </div>
-                </div>
+                </div> --}}
                 @error('p_price')
                     <span class="text-danger">{{ $message }}</span>
                 @enderror

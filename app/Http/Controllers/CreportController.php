@@ -134,10 +134,12 @@ class CreportController extends Controller
                 )
                 ->get();
 
-
+            $nonEggTransactions = $transactions->filter(function ($transaction) {
+                return !($transaction->product && $transaction->product->category === 'Egg');
+            });
 
             // Calculate totals by payment type
-            $totalCashSales = $transactions
+            $totalCashSales = $nonEggTransactions
                 ->filter(function ($transaction) {
                     return in_array($transaction->transaction->payment_type, ['cash', 'advance_payment']);
                 })
@@ -151,20 +153,20 @@ class CreportController extends Controller
                 })
                 ->sum();
             $totalBalancePayment = $balancePayments->sum('amount');
-            $totalOnlinePayment = $transactions
-            ->filter(function ($transaction) {
-                return $transaction->transaction->payment_type === 'online';
-            })
-            ->sum('total');
+            $totalOnlinePayment = $nonEggTransactions
+                ->filter(function ($transaction) {
+                    return $transaction->transaction->payment_type === 'online';
+                })
+                ->sum('total');
 
             // Modified credit charge calculation to group by transaction first
-            $creditTransactions = $transactions->where('transaction.payment_type', 'credit')
+            $creditTransactions = $nonEggTransactions->where('transaction.payment_type', 'credit')
                 ->groupBy('transaction.transaction_id')
                 ->map(function ($items) {
                     $transaction = $items->first()->transaction;
                     return $transaction->credit_charge ?? $items->sum('total');
                 });
-            $totalCreditCharge = $transactions->filter(function ($transaction) {
+            $totalCreditCharge = $nonEggTransactions->filter(function ($transaction) {
                 return $transaction->transaction->payment_type === 'credit' ||
                     ($transaction->transaction->credit_charge && $transaction->transaction->credit_charge > 0);
             })->groupBy('transaction.transaction_id')
@@ -269,14 +271,16 @@ class CreportController extends Controller
             // Data Rows
             // Data Rows
             $row = 6;
-            // Inside the data rows loop
-            foreach ($transactions as $transaction) {
+            $nonEggTransactions = $transactions->filter(function ($transaction) {
+                return !($transaction->product && $transaction->product->category === 'Egg');
+            });
+
+            foreach ($nonEggTransactions as $transaction) {
                 $sheet->getStyle('A' . $row . ':H' . $row)->applyFromArray([
                     'borders' => [
                         'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
                     ],
                 ]);
-
                 // Set customer name and receipt number
                 $sheet->setCellValue('A' . $row, $transaction->transaction->customer->FirstName . ' ' .
                     $transaction->transaction->customer->LastName);
@@ -610,6 +614,155 @@ class CreportController extends Controller
                 ],
             ]);
             $sheet->getStyle('C' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+
+
+            // Add Egg Products Section
+            $row += 2;
+            $sheet->mergeCells('A' . $row . ':H' . $row);
+            $sheet->setCellValue('A' . $row, 'EGG PRODUCTS TRANSACTIONS');
+            $sheet->getStyle('A' . $row . ':H' . $row)->applyFromArray([
+                'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => '4472C4'],
+                ],
+            ]);
+
+            // Column Headers for Egg Products
+            $row++;
+            $headers = [
+                'A' => "CUSTOMER'S NAME",
+                'B' => 'RECEIPT #',
+                'C' => 'CASH SALES',
+                'D' => 'BAL. PAYMENT',
+                'E' => 'ONLINE',
+                'F' => 'CREDIT/CHARGE',
+                'G' => 'REMARKS',
+                'H' => 'DATE'
+            ];
+
+            foreach ($headers as $col => $value) {
+                $sheet->setCellValue($col . $row, $value);
+            }
+
+            $sheet->getStyle('A' . $row . ':H' . $row)->applyFromArray([
+                'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => '305496'],
+                ],
+                'borders' => [
+                    'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                ],
+            ]);
+
+            // Filter transactions for egg products
+            $eggTransactions = $transactions->filter(function ($transaction) {
+                return $transaction->product && $transaction->product->category === 'Egg';
+            });
+
+            // Data Rows for Egg Products
+            $row++;
+            $totalEggCash = 0;
+            $totalEggBalance = 0;
+            $totalEggOnline = 0;
+            $totalEggCredit = 0;
+
+            foreach ($eggTransactions as $transaction) {
+                $sheet->getStyle('A' . $row . ':H' . $row)->applyFromArray([
+                    'borders' => [
+                        'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                    ],
+                ]);
+
+                $sheet->setCellValue('A' . $row, $transaction->transaction->customer->FirstName . ' ' .
+                    $transaction->transaction->customer->LastName);
+                $sheet->setCellValue('B' . $row, $transaction->transaction->receipt_id);
+
+                switch ($transaction->transaction->payment_type) {
+                    case 'online':
+                        $amount = $transaction->total;
+                        $sheet->setCellValue('E' . $row, $amount);
+                        $totalEggOnline += $amount;
+                        $sheet->setCellValue('G' . $row, 'Online Payment' .
+                            ($transaction->transaction->reference_number ? ' (Ref: ' . $transaction->transaction->reference_number . ')' : ''));
+                        break;
+
+                    case 'cash':
+                        $cashAmount = $transaction->transaction->credit_charge > 0
+                            ? $transaction->total - $transaction->transaction->credit_charge
+                            : $transaction->total;
+                        $sheet->setCellValue('C' . $row, $cashAmount);
+                        $totalEggCash += $cashAmount;
+                        if ($transaction->transaction->credit_charge > 0) {
+                            $sheet->setCellValue('F' . $row, $transaction->transaction->credit_charge);
+                            $totalEggCredit += $transaction->transaction->credit_charge;
+                        }
+                        break;
+
+                    case 'credit':
+                        $creditAmount = $transaction->transaction->credit_charge ?? $transaction->total;
+                        $sheet->setCellValue('F' . $row, $creditAmount);
+                        $totalEggCredit += $creditAmount;
+                        $sheet->setCellValue('G' . $row, 'Credit Transaction');
+                        break;
+                }
+
+                $sheet->setCellValue('H' . $row, Carbon::parse($transaction->created_at)->format('M d, Y'));
+                $sheet->getStyle('C' . $row . ':F' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+
+                $row++;
+            }
+
+            // Add Egg Products Summary
+            $row++;
+            $sheet->mergeCells('A' . $row . ':B' . $row);
+            $sheet->setCellValue('A' . $row, 'EGG PRODUCTS SUMMARY');
+            $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray([
+                'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => '4472C4'],
+                ],
+            ]);
+
+            $summaryStyle = [
+                'font' => ['bold' => true],
+                'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT],
+                'borders' => [
+                    'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                ],
+            ];
+
+            // Add summary rows
+            $row++;
+            $summaryRows = [
+                ['label' => 'Total Egg Cash Sales:', 'value' => $totalEggCash],
+                ['label' => 'Total Egg Online Payment:', 'value' => $totalEggOnline],
+                ['label' => 'Total Egg Credit/Charge:', 'value' => $totalEggCredit],
+            ];
+
+            foreach ($summaryRows as $summaryRow) {
+                $sheet->setCellValue('A' . $row, $summaryRow['label']);
+                $sheet->setCellValue('B' . $row, $summaryRow['value']);
+                $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray($summaryStyle);
+                $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $row++;
+            }
+
+            // Total Egg Sales
+            $totalEggSales = $totalEggCash + $totalEggOnline;
+            $sheet->setCellValue('A' . $row, 'Total Egg Sales:');
+            $sheet->setCellValue('B' . $row, $totalEggSales);
+            $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray([
+                'font' => ['bold' => true],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => 'FFFF00'],
+                ],
+                'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT],
+            ]);
+            $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
 
             // Add Generated By section
             $currentUser = Auth::user();

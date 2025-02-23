@@ -60,7 +60,7 @@
                             <thead>
                                 <tr>
                                     <th>Product (SKU)</th>
-                                    <th>Kilos</th>
+                                    <th>Kilos/Tray</th>
                                     <th>Head/Pcs</th>
                                     <th>Price</th>
                                 </tr>

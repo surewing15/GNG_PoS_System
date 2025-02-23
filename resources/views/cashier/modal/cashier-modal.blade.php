@@ -567,11 +567,13 @@
             const availableAdvance = parseFloat(document.getElementById('availableAdvance').textContent
                 .replace(/[₱,\s]/g, ''));
             const remainingAmount = grandTotal - availableAdvance;
+            const paymentTypeSelect = document.getElementById('paymentType');
 
             if (type === 'cash') {
                 // Show cash payment input
                 const {
-                    value: cashAmount
+                    value: cashAmount,
+                    isConfirmed
                 } = await Swal.fire({
                     title: 'Enter Cash Amount',
                     input: 'number',
@@ -585,7 +587,10 @@
                     }
                 });
 
-                if (cashAmount) {
+                if (isConfirmed && cashAmount) {
+                    // IMPORTANT: Set payment type to advance/cash
+                    paymentTypeSelect.value = 'advance/cash';
+
                     // Update payment amounts
                     const totalPaid = availableAdvance + parseFloat(cashAmount);
                     document.getElementById('amount-paid').value = totalPaid.toFixed(2);
@@ -593,12 +598,13 @@
                     document.getElementById('change-amount').value = change.toFixed(2);
 
                     // Update warning message
-                    insufficientAdvanceWarning.innerHTML = `
+                    document.getElementById('insufficientAdvanceWarning').innerHTML = `
                 <div class="alert alert-success">
                     <p>Payment completed with:</p>
                     <p>Advance Payment: ₱${availableAdvance.toFixed(2)}</p>
                     <p>Cash Payment: ₱${cashAmount}</p>
                     <p>Change: ₱${change.toFixed(2)}</p>
+                    <p class="text-info">Payment Type: Advance + Cash</p>
                 </div>`;
                 }
             } else if (type === 'credit') {
@@ -619,16 +625,20 @@
                 });
 
                 if (isConfirmed) {
+                    // Keep payment type as advance_payment for full credit
+                    paymentTypeSelect.value = 'advance_payment';
+
                     // Update payment display
-                    document.getElementById('amount-paid').value = availableAdvance.toFixed(2);
+                    document.getElementById('amount-paid').value = '0.00';
                     document.getElementById('change-amount').value = '0.00';
 
                     // Update warning message
-                    insufficientAdvanceWarning.innerHTML = `
+                    document.getElementById('insufficientAdvanceWarning').innerHTML = `
                 <div class="alert alert-info">
                     <p>Payment split:</p>
-                    <p>Advance Payment: ₱${availableAdvance.toFixed(2)}</p>
+                    <p>Advance Payment Used: ₱${availableAdvance.toFixed(2)}</p>
                     <p>Added to Balance: ₱${remainingAmount.toFixed(2)}</p>
+                    <p class="text-info">Amount Paid: ₱0.00 (Full amount added to balance)</p>
                 </div>`;
                 }
             }
@@ -1056,17 +1066,41 @@
                     '0');
                 const serviceType = document.getElementById('serviceType').value;
 
-                // Calculate credit charge - difference between total and amount paid
-                const creditCharge = Math.max(0, totalAfterDiscount - amountPaid);
-
-                // Get advance payment amount if that payment type is selected
+                // Initialize payment variables
                 let usedAdvancePayment = 0;
+                let creditCharge = 0;
+                let finalAmountPaid = amountPaid;
+
+                // Handle advance payment logic
                 if (paymentType === 'advance_payment') {
                     const advanceText = document.getElementById('advanceToUse').textContent;
-                    usedAdvancePayment = parseFloat(advanceText.replace('₱', '').trim()) || 0;
+                    usedAdvancePayment = parseFloat(advanceText.replace(/[₱,\s]/g, '').trim()) || 0;
+
                     if (usedAdvancePayment <= 0) {
                         throw new Error('Invalid advance payment amount');
                     }
+
+                    // Calculate if there's any remaining amount to be paid
+                    const remainingAmount = totalAfterDiscount - usedAdvancePayment;
+
+                    if (remainingAmount > 0) {
+                        // If there's additional cash payment
+                        if (amountPaid > 0) {
+                            finalAmountPaid = amountPaid;
+                            creditCharge = Math.max(0, remainingAmount - amountPaid);
+                        } else {
+                            // If no additional payment, treat as credit
+                            creditCharge = remainingAmount;
+                            finalAmountPaid = 0;
+                        }
+                    } else {
+                        // Advance payment covers everything
+                        finalAmountPaid = 0;
+                        creditCharge = 0;
+                    }
+                } else {
+                    // For non-advance payments, calculate credit charge normally
+                    creditCharge = Math.max(0, totalAfterDiscount - amountPaid);
                 }
 
                 const items = Array.from(document.querySelector('.table-striped tbody').rows).map(row => {
@@ -1078,35 +1112,33 @@
                         head: parseInt(row.querySelector('.head-input').value) || 0,
                         dr: row.dataset.dr || '',
                         price_per_kilo: price_per_kilo,
-                        total: kilos * price_per_kilo // Explicit calculation
+                        total: kilos * price_per_kilo
                     };
                 });
 
-                // Format transaction data with credit charge
+                // Construct transaction data
                 const transactionData = {
                     customer_id: parseInt(customerId),
                     service_type: String(serviceType),
                     payment_type: String(paymentType),
                     reference_number: paymentType === 'online' ? String(document.getElementById(
                         'reference-number').value) : null,
-                    used_advance_payment: paymentType === 'advance_payment' ? Number(usedAdvancePayment
+                    advance_payment_used: paymentType === 'advancePaymentUsed' ? Number(
+                        usedAdvancePayment
                         .toFixed(2)) : null,
                     items: items,
                     subtotal: Number(subtotal.toFixed(2)),
                     discount_percentage: Number(discountPercentage.toFixed(2)),
                     discount_amount: Number(discountAmount.toFixed(2)),
                     total_amount: Number(totalAfterDiscount.toFixed(2)),
-                    amount_paid: Number(amountPaid.toFixed(2)),
-                    credit_charge: Number(creditCharge.toFixed(2)), // Add credit charge
+                    amount_paid: Number(finalAmountPaid.toFixed(2)),
+                    credit_charge: Number(creditCharge.toFixed(2)),
                     change_amount: Number(changeAmount.toFixed(2)),
                     receipt_id: String(document.getElementById('receiptID').textContent),
                     status: serviceType === 'deliver' ? 'Not Assigned' : null
                 };
 
-                console.log('Sending transaction data:', {
-                    ...transactionData,
-                    credit_charge: creditCharge // Log credit charge explicitly
-                });
+                console.log('Sending transaction data:', transactionData);
 
                 const response = await fetch('/save-transaction', {
                     method: 'POST',

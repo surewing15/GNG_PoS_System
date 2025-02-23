@@ -119,7 +119,7 @@
                         <tbody>
                             @foreach ($transactionItems as $item)
                                 <tr>
-                                    <td>{{ Carbon\Carbon::parse($item->date)->format('M d, Y ') }}</td>
+                                    <td>{{ Carbon\Carbon::parse($item->created_at)->format('M d, Y ') }}</td>
                                     <td>{{ $item->transaction->receipt_id }}</td>
                                     <td>{{ $item->product->product_sku }}</td>
                                     <td>{{ number_format($item->kilos, 2) }}</td>

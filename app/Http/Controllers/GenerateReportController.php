@@ -12,6 +12,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Auth;
+use App\Models\User;
 
 class GenerateReportController extends Controller
 {
@@ -91,8 +92,7 @@ class GenerateReportController extends Controller
     public function export(Request $request)
     {
         try {
-            // Get filter parameters and user ID
-            $userId = Auth::id();
+
 
             // Get start and end dates from request
             $startDate = $request->input('start_date')
@@ -103,7 +103,7 @@ class GenerateReportController extends Controller
                 : Carbon::now()->endOfDay();
             $paymentType = $request->input('payment_type');
 
-            // Query builder with date range
+            // Query builder with date range - removed user_id filter
             $query = TransactionItemModel::with([
                 'transaction' => function ($query) {
                     $query->select(
@@ -114,11 +114,13 @@ class GenerateReportController extends Controller
                         'CustomerID',
                         'created_at',
                         'total_amount',
-                        'user_id'  // Added user_id for staff information
+                        'amount_paid',
+                        'reference_number',
+                        'user_id'
                     );
                 },
                 'transaction.customer',
-                'transaction.user', // Added user relationship
+                'transaction.user',
                 'product'
             ])
                 ->whereHas('transaction', function ($query) use ($startDate, $endDate) {
@@ -133,8 +135,21 @@ class GenerateReportController extends Controller
 
             $transactions = $query->get();
 
+            // Group transactions by user
+            $userTransactions = $transactions->groupBy('transaction.user_id');
+
+            // Get all expenses without user filter
+            $expenses = ExpenseModel::whereBetween('created_at', [$startDate, $endDate])->get();
+            $userExpenses = $expenses->groupBy('user_id');
+
+            $totalExpenses = $expenses->sum('e_amount');
+            $totalReturns = $expenses->sum('e_return_amount');
+            $netExpenses = $totalExpenses - $totalReturns;
+
+            // Get balance payments with user information
             $balancePayments = DB::table('tbl_payment')
                 ->join('tbl_customers', 'tbl_payment.customer_id', '=', 'tbl_customers.CustomerID')
+                ->join('users', 'tbl_payment.user_id', '=', 'users.id')
                 ->whereBetween('payment_date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
                 ->select(
                     'tbl_customers.FirstName',
@@ -142,40 +157,15 @@ class GenerateReportController extends Controller
                     'tbl_customers.CustomerID',
                     'tbl_payment.id as receipt_id',
                     'tbl_payment.amount',
-                    'tbl_payment.payment_date'
+                    'tbl_payment.payment_date',
+                    'users.name as user_name',
+                    'users.id as user_id'
                 )
                 ->get();
 
-            // Calculate totals by payment type
-            $totalCashSales = $transactions
-                ->where('transaction.payment_type', 'cash')
-                ->map(function ($transaction) {
-                    return $transaction->transaction->credit_charge > 0
-                        ? $transaction->total - $transaction->transaction->credit_charge
-                        : $transaction->total;
-                })
-                ->sum();
-            $totalBalancePayment = $balancePayments->sum('amount');
-            $totalOnlinePayment = $transactions->where('transaction.payment_type', 'online')->sum('total');
-            // Modified credit charge calculation to group by transaction first
-            $creditTransactions = $transactions->where('transaction.payment_type', 'credit')
-                ->groupBy('transaction.transaction_id')
-                ->map(function ($items) {
-                    $transaction = $items->first()->transaction;
-                    return $transaction->credit_charge ?? $items->sum('total');
-                });
-            $totalCreditCharge = $transactions->filter(function ($transaction) {
-                return $transaction->transaction->payment_type === 'credit' ||
-                    ($transaction->transaction->credit_charge && $transaction->transaction->credit_charge > 0);
-            })->groupBy('transaction.transaction_id')
-                ->map(function ($group) {
-                    $firstTransaction = $group->first()->transaction;
-                    return $firstTransaction->credit_charge ?? $group->sum('total');
-                })->sum();
+            // Group balance payments by user
+            $userBalancePayments = $balancePayments->groupBy('user_id');
 
-
-            // Calculate total sales after regrouping credit charges
-            $totalSales = $totalCashSales + $totalBalancePayment + $totalOnlinePayment;
             // Create new Spreadsheet
             $spreadsheet = new Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
@@ -189,6 +179,7 @@ class GenerateReportController extends Controller
             $sheet->getColumnDimension('F')->setWidth(15);
             $sheet->getColumnDimension('G')->setWidth(20);
             $sheet->getColumnDimension('H')->setWidth(15);
+            $sheet->getColumnDimension('I')->setWidth(20);
 
             // Header Styles
             $headerStyle = [
@@ -207,11 +198,11 @@ class GenerateReportController extends Controller
             ];
 
             // Title Section
-            $sheet->mergeCells('A1:H1');
+            $sheet->mergeCells('A1:I1');
             $sheet->setCellValue('A1', "GLENCY'S DRESSED CHICKEN AND TRADING");
-            $sheet->mergeCells('A2:H2');
-            $sheet->setCellValue('A2', 'DAILY SALES REPORT');
-            $sheet->mergeCells('A3:H3');
+            $sheet->mergeCells('A2:I2');
+            $sheet->setCellValue('A2', 'DAILY SALES REPORT (ADMIN)');
+            $sheet->mergeCells('A3:I3');
 
             // Show date range in title
             if ($startDate->isSameDay($endDate)) {
@@ -222,128 +213,241 @@ class GenerateReportController extends Controller
             $sheet->setCellValue('A3', $dateDisplay);
 
             // Apply header styles
-            $sheet->getStyle('A1:H3')->applyFromArray($headerStyle);
+            $sheet->getStyle('A1:I3')->applyFromArray($headerStyle);
             $sheet->getStyle('A1')->getFont()->setSize(14);
             $sheet->getStyle('A2')->getFont()->setSize(12);
             $sheet->getStyle('A3')->getFont()->setSize(11);
 
-            // Sales Transactions Header
-            $sheet->mergeCells('A4:H4');
-            $sheet->setCellValue('A4', 'SALES TRANSACTIONS');
-            $sheet->getStyle('A4:H4')->applyFromArray([
-                'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
-                'fill' => [
-                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
-                    'startColor' => ['rgb' => '4472C4'],
-                ],
-            ]);
+            $row = 4;
+            $grandTotalCashSales = 0;
+            $grandTotalBalancePayment = 0;
+            $grandTotalOnlinePayment = 0;
+            $grandTotalCreditCharge = 0;
 
-            // Column Headers
-            $headers = [
-                'A5' => "CUSTOMER'S NAME",
-                'B5' => 'RECEIPT #',
-                'C5' => 'CASH SALES',
-                'D5' => 'BAL. PAYMENT',
-                'E5' => 'ONLINE',
-                'F5' => 'CREDIT/CHARGE',
-                'G5' => 'REMARKS',
-                'H5' => 'DATE'
-            ];
+            // Process each user's data
+            foreach ($userTransactions as $userId => $userTxns) {
+                $user = $userTxns->first()->transaction->user;
 
-            foreach ($headers as $cell => $value) {
-                $sheet->setCellValue($cell, $value);
-            }
-
-            // Apply header row styles
-            $sheet->getStyle('A5:H5')->applyFromArray([
-                'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
-                'fill' => [
-                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
-                    'startColor' => ['rgb' => '305496'],
-                ],
-                'borders' => [
-                    'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
-                ],
-            ]);
-
-            // Data Rows
-            // Data Rows
-            $row = 6;
-            foreach ($transactions as $transaction) {
-                $sheet->getStyle('A' . $row . ':H' . $row)->applyFromArray([
-                    'borders' => [
-                        'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                // User Section Header
+                $row++;
+                $sheet->mergeCells("A{$row}:I{$row}");
+                $sheet->setCellValue("A{$row}", "USER: " . ($user ? $user->name : 'Unknown User'));
+                $sheet->getStyle("A{$row}:I{$row}")->applyFromArray([
+                    'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                    'fill' => [
+                        'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                        'startColor' => ['rgb' => '4472C4'],
                     ],
                 ]);
 
-                $sheet->setCellValue('A' . $row, $transaction->transaction->customer->FirstName . ' ' .
-                    $transaction->transaction->customer->LastName);
-                $sheet->setCellValue('B' . $row, $transaction->transaction->receipt_id);
+                // Column Headers
+                $row++;
+                $headers = [
+                    'A' => "CUSTOMER'S NAME",
+                    'B' => 'RECEIPT #',
+                    'C' => 'CASH SALES',
+                    'D' => 'BAL. PAYMENT',
+                    'E' => 'ONLINE',
+                    'F' => 'CREDIT/CHARGE',
+                    'G' => 'REMARKS',
+                    'H' => 'DATE',
+                    'I' => 'STAFF'
+                ];
 
-                // Check payment type first
-                switch ($transaction->transaction->payment_type) {
-                    case 'cash':
-                        // If there's a credit charge, reduce the cash sale amount by the credit charge
-                        $cashAmount = $transaction->transaction->credit_charge > 0
-                            ? $transaction->total - $transaction->transaction->credit_charge
-                            : $transaction->total;
-
-                        $sheet->setCellValue('C' . $row, $cashAmount);
-
-                        // Set credit charge if present
-                        if ($transaction->transaction->credit_charge > 0) {
-                            $sheet->setCellValue('F' . $row, $transaction->transaction->credit_charge);
-                        }
-                        break;
-                    case 'online':
-                        $sheet->setCellValue('E' . $row, $transaction->total);
-                        // Check if online transaction has credit charge
-                        if ($transaction->transaction->credit_charge > 0) {
-                            $sheet->setCellValue('F' . $row, $transaction->transaction->credit_charge);
-                        }
-                        break;
-                    case 'debit':
-                        // For debit, only show in CREDIT/CHARGE column
-                        $sheet->setCellValue('F' . $row, $transaction->total);
-                        break;
-                    case 'credit':
-                        $sheet->setCellValue('F' . $row, $transaction->transaction->credit_charge ?? $transaction->total);
-                        break;
+                foreach ($headers as $col => $value) {
+                    $sheet->setCellValue($col . $row, $value);
                 }
 
-                $sheet->setCellValue('G' . $row, $transaction->remarks ?? '');
-                $sheet->setCellValue('H' . $row, Carbon::parse($transaction->created_at)->format('M d, Y'));
-
-                $sheet->getStyle('C' . $row . ':F' . $row)->getNumberFormat()
-                    ->setFormatCode('#,##0.00');
-
-                $row++;
-            }
-
-            foreach ($balancePayments as $payment) {
-                $sheet->getStyle('A' . $row . ':H' . $row)->applyFromArray([
+                // Style headers
+                $sheet->getStyle("A{$row}:I{$row}")->applyFromArray([
+                    'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                    'fill' => [
+                        'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                        'startColor' => ['rgb' => '305496'],
+                    ],
                     'borders' => [
                         'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
                     ],
                 ]);
 
-                $sheet->setCellValue('A' . $row, $payment->FirstName . ' ' . $payment->LastName);
-                $sheet->setCellValue('B' . $row, 'PMT-' . str_pad($payment->receipt_id, 5, '0', STR_PAD_LEFT));
-                $sheet->setCellValue('D' . $row, $payment->amount);
-                $sheet->setCellValue('G' . $row, 'Balance Payment');
-                $sheet->setCellValue('H' . $row, Carbon::parse($payment->payment_date)->format('M d, Y'));
+                $row++;
 
-                $sheet->getStyle('C' . $row . ':F' . $row)->getNumberFormat()
-                    ->setFormatCode('#,##0.00');
+                // Calculate user totals
+                $userTotalCashSales = 0;
+                $userTotalBalancePayment = 0;
+                $userTotalOnlinePayment = 0;
+                $userTotalCreditCharge = 0;
+
+                // Process transactions
+                foreach ($userTxns as $transaction) {
+                    $sheet->getStyle("A{$row}:I{$row}")->applyFromArray([
+                        'borders' => [
+                            'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                        ],
+                    ]);
+
+                    // Set customer name and receipt number
+                    $sheet->setCellValue('A' . $row, $transaction->transaction->customer->FirstName . ' ' .
+                        $transaction->transaction->customer->LastName);
+                    $sheet->setCellValue('B' . $row, $transaction->transaction->receipt_id);
+                    $sheet->setCellValue('I' . $row, $transaction->transaction->user->name ?? 'Unknown');
+
+                    // Process payment types
+                    switch ($transaction->transaction->payment_type) {
+                        case 'online':
+                            $amount = $transaction->total;
+                            $sheet->setCellValue('E' . $row, $amount);
+                            $sheet->setCellValue('G' . $row, 'Online Payment' .
+                                ($transaction->transaction->reference_number ? ' (Ref: ' . $transaction->transaction->reference_number . ')' : ''));
+                            $userTotalOnlinePayment += $amount;
+                            break;
+
+                        case 'cash':
+                            $cashAmount = $transaction->transaction->credit_charge > 0
+                                ? $transaction->total - $transaction->transaction->credit_charge
+                                : $transaction->total;
+                            $sheet->setCellValue('C' . $row, $cashAmount);
+                            $userTotalCashSales += $cashAmount;
+                            if ($transaction->transaction->credit_charge > 0) {
+                                $sheet->setCellValue('F' . $row, $transaction->transaction->credit_charge);
+                                $userTotalCreditCharge += $transaction->transaction->credit_charge;
+                            }
+                            break;
+
+                        case 'credit':
+                            $creditAmount = $transaction->transaction->credit_charge ?? $transaction->total;
+                            $sheet->setCellValue('F' . $row, $creditAmount);
+                            $sheet->setCellValue('G' . $row, 'Credit Transaction');
+                            $userTotalCreditCharge += $creditAmount;
+                            break;
+
+                        case 'advance_payment':
+                            $advanceAmount = $transaction->transaction->amount_paid ?? $transaction->total;
+                            $sheet->setCellValue('C' . $row, $advanceAmount);
+                            $userTotalCashSales += $advanceAmount; // Add to cash sales total
+
+                            // If there's a remaining balance, show it as credit
+                            $remainingBalance = $transaction->total - $advanceAmount;
+                            if ($remainingBalance > 0) {
+                                $sheet->setCellValue('F' . $row, $remainingBalance);
+                                $userTotalCreditCharge += $remainingBalance;
+                            }
+
+                            $sheet->setCellValue('G' . $row, 'Advance Payment');
+                            break;
+                    }
+
+                    $sheet->setCellValue('H' . $row, Carbon::parse($transaction->created_at)->format('M d, Y'));
+                    $sheet->getStyle("C{$row}:F{$row}")->getNumberFormat()->setFormatCode('#,##0.00');
+                    $row++;
+                }
+
+                // Process balance payments for current user
+                if (isset($userBalancePayments[$userId])) {
+                    foreach ($userBalancePayments[$userId] as $payment) {
+                        $sheet->getStyle("A{$row}:I{$row}")->applyFromArray([
+                            'borders' => [
+                                'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                            ],
+                        ]);
+
+                        $sheet->setCellValue('A' . $row, $payment->FirstName . ' ' . $payment->LastName);
+                        $sheet->setCellValue('B' . $row, 'PMT-' . str_pad($payment->receipt_id, 5, '0', STR_PAD_LEFT));
+                        $sheet->setCellValue('D' . $row, $payment->amount);
+                        $sheet->setCellValue('G' . $row, 'Balance Payment');
+                        $sheet->setCellValue('H' . $row, Carbon::parse($payment->payment_date)->format('M d, Y'));
+                        $sheet->setCellValue('I' . $row, $payment->user_name);
+
+                        $userTotalBalancePayment += $payment->amount;
+                        $sheet->getStyle("C{$row}:F{$row}")->getNumberFormat()->setFormatCode('#,##0.00');
+                        $row++;
+                    }
+                }
+
+                // User Summary
+                $row += 1;
+                $sheet->mergeCells("A{$row}:B{$row}");
+                $sheet->setCellValue("A{$row}", "Summary for " . ($user ? $user->name : 'Unknown User'));
+                $sheet->getStyle("A{$row}:B{$row}")->applyFromArray([
+                    'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                    'fill' => [
+                        'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                        'startColor' => ['rgb' => '4472C4'],
+                    ],
+                    'borders' => [
+                        'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                    ],
+                ]);
 
                 $row++;
+                // Add user totals
+                $userTotalSales = $userTotalCashSales + $userTotalBalancePayment + $userTotalOnlinePayment;
+
+                // Style for summary rows
+                $summaryRowStyle = [
+                    'borders' => [
+                        'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                    ],
+                    'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT],
+                ];
+
+
+                $sheet->setCellValue("A{$row}", "Total Cash Sales:");
+                $sheet->setCellValue("B{$row}", $userTotalCashSales);
+                $sheet->getStyle("A{$row}:B{$row}")->applyFromArray($summaryRowStyle);
+                $row++;
+
+                // Total Balance Payment
+                $sheet->setCellValue("A{$row}", "Total Balance Payment:");
+                $sheet->setCellValue("B{$row}", $userTotalBalancePayment);
+                $sheet->getStyle("A{$row}:B{$row}")->applyFromArray($summaryRowStyle);
+                $row++;
+
+                // Total Online Payment
+                $sheet->setCellValue("A{$row}", "Total Online Payment:");
+                $sheet->setCellValue("B{$row}", $userTotalOnlinePayment);
+                $sheet->getStyle("A{$row}:B{$row}")->applyFromArray($summaryRowStyle);
+                $row++;
+
+                // Total Credit/Charge
+                $sheet->setCellValue("A{$row}", "Total Credit/Charge:");
+                $sheet->setCellValue("B{$row}", $userTotalCreditCharge);
+                $sheet->getStyle("A{$row}:B{$row}")->applyFromArray($summaryRowStyle);
+                $row++;
+
+                // Total Sales
+                $sheet->setCellValue("A{$row}", "Total Sales:");
+                $sheet->setCellValue("B{$row}", $userTotalSales);
+                $sheet->getStyle("A{$row}:B{$row}")->applyFromArray([
+                    'font' => ['bold' => true],
+                    'fill' => [
+                        'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                        'startColor' => ['rgb' => 'FFFF00'],
+                    ],
+                    'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT],
+                    'borders' => [
+                        'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                    ],
+                ]);
+                $sheet->getStyle("B{$row}")->getNumberFormat()->setFormatCode('#,##0.00');
+
+                // Format numbers
+                $sheet->getStyle("B" . ($row - 4) . ":B" . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+
+                // Add to grand totals
+                $grandTotalCashSales += $userTotalCashSales;
+                $grandTotalBalancePayment += $userTotalBalancePayment;
+                $grandTotalOnlinePayment += $userTotalOnlinePayment;
+                $grandTotalCreditCharge += $userTotalCreditCharge;
+
+                $row += 2; // Add space between users
             }
 
-            // Add Summary Section
-            $row += 2;
-            $sheet->mergeCells('A' . $row . ':B' . $row);
-            $sheet->setCellValue('A' . $row, 'SUMMARY');
-            $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray([
+            // Grand Total Section
+            $row += 1;
+            $sheet->mergeCells("A{$row}:B{$row}");
+            $sheet->setCellValue("A{$row}", "GRAND TOTALS");
+            $sheet->getStyle("A{$row}:B{$row}")->applyFromArray([
                 'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
                 'fill' => [
                     'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
@@ -351,8 +455,10 @@ class GenerateReportController extends Controller
                 ],
             ]);
 
-            // Summary rows
             $row++;
+            // Grand Totals Section (continued)
+            $grandTotalSales = $grandTotalCashSales + $grandTotalBalancePayment + $grandTotalOnlinePayment;
+
             $summaryStyle = [
                 'font' => ['bold' => true],
                 'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT],
@@ -361,11 +467,12 @@ class GenerateReportController extends Controller
                 ],
             ];
 
+            // Grand Total Summary Rows
             $summaryRows = [
-                ['label' => 'Total Cash Sales:', 'value' => $totalCashSales, 'isCredit' => false],
-                ['label' => 'Total Balance Payment:', 'value' => $totalBalancePayment, 'isCredit' => false],
-                ['label' => 'Total Online Payment:', 'value' => $totalOnlinePayment, 'isCredit' => false],
-                ['label' => 'Total Credit/Charge:', 'value' => $totalCreditCharge, 'isCredit' => true],
+                ['label' => 'Total Cash Sales:', 'value' => $grandTotalCashSales, 'isCredit' => false],
+                ['label' => 'Total Balance Payment:', 'value' => $grandTotalBalancePayment, 'isCredit' => false],
+                ['label' => 'Total Online Payment:', 'value' => $grandTotalOnlinePayment, 'isCredit' => false, 'isOnline' => true],
+                ['label' => 'Total Credit/Charge:', 'value' => $grandTotalCreditCharge, 'isCredit' => true],
             ];
 
             foreach ($summaryRows as $summaryRow) {
@@ -373,23 +480,30 @@ class GenerateReportController extends Controller
                 $sheet->setCellValue('B' . $row, $summaryRow['value']);
 
                 if ($summaryRow['isCredit']) {
-                    // Special styling for credit/charge amount with red font
+                    // Red styling for credit amounts
                     $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray([
                         'font' => [
                             'bold' => true,
-                            'color' => ['rgb' => 'FF0000'], // Red color
+                            'color' => ['rgb' => 'FF0000'],
                         ],
-                        'alignment' => [
-                            'horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT
-                        ],
+                        'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT],
                         'borders' => [
-                            'allBorders' => [
-                                'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN
-                            ],
+                            'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                        ],
+                    ]);
+                } elseif (isset($summaryRow['isOnline']) && $summaryRow['isOnline']) {
+                    // Blue styling for online payments
+                    $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray([
+                        'font' => [
+                            'bold' => true,
+                            'color' => ['rgb' => '0000FF'],
+                        ],
+                        'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT],
+                        'borders' => [
+                            'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
                         ],
                     ]);
                 } else {
-                    // Regular summary styling for non-credit rows
                     $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray($summaryStyle);
                 }
 
@@ -397,11 +511,9 @@ class GenerateReportController extends Controller
                 $row++;
             }
 
-
-
-            // Total Sales (with yellow background)
-            $sheet->setCellValue('A' . $row, 'Total Sales:');
-            $sheet->setCellValue('B' . $row, $totalSales);
+            // Grand Total Sales (with yellow background)
+            $sheet->setCellValue('A' . $row, 'Grand Total Sales:');
+            $sheet->setCellValue('B' . $row, $grandTotalSales);
             $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray([
                 'font' => ['bold' => true],
                 'fill' => [
@@ -412,8 +524,156 @@ class GenerateReportController extends Controller
             ]);
             $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
 
+            // After Grand Total Sales with yellow background
+            $row++;
+            $netIncomeLess = $grandTotalSales - $netExpenses;
+            $sheet->setCellValue('A' . $row, 'Net Income Less:');
+            $sheet->setCellValue('B' . $row, $netIncomeLess);
+            $sheet->getStyle('A' . $row . ':A' . $row)->applyFromArray([
+                'font' => ['bold' => true],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => '92D050'], // Green background
+                ],
+                'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT],
+                'borders' => [
+                    'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                ],
+            ]);
+            $sheet->getStyle('B' . $row)->applyFromArray([
+                'font' => ['bold' => true],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => '92D050'], // Green background
+                ],
+                'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT],
+                'borders' => [
+                    'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                ],
+            ]);
+            $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
 
 
+
+
+            // Expenses Section - Starting at column J
+            $sheet->mergeCells('J1:L1');
+            $sheet->setCellValue('J1', 'EXPENSES');
+            $sheet->getStyle('J1:L1')->applyFromArray([
+                'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => '4472C4'],
+                ],
+            ]);
+
+            // Expense Headers
+            $expenseHeaders = ['Description', 'Amount', 'Status'];
+            foreach ($expenseHeaders as $index => $header) {
+                $sheet->setCellValue(chr(74 + $index) . '2', $header);
+            }
+            $sheet->getStyle('J2:L2')->applyFromArray([
+                'font' => ['bold' => true],
+                'borders' => [
+                    'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                ],
+            ]);
+
+            // Group expenses by user and display
+            $expenseRow = 3;
+            foreach ($userExpenses as $userId => $userExps) {
+                $user = User::find($userId);
+
+                // User section header in expenses
+                $sheet->mergeCells("J{$expenseRow}:L{$expenseRow}");
+                $sheet->setCellValue("J{$expenseRow}", "Expenses for: " . ($user ? $user->name : 'Unknown User'));
+                $sheet->getStyle("J{$expenseRow}:L{$expenseRow}")->applyFromArray([
+                    'font' => ['bold' => true],
+                    'fill' => [
+                        'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                        'startColor' => ['rgb' => 'D9D9D9'],
+                    ],
+                ]);
+                $expenseRow++;
+
+                foreach ($userExps as $expense) {
+                    $sheet->setCellValue('J' . $expenseRow, $expense->e_description);
+                    $sheet->setCellValue('K' . $expenseRow, $expense->e_amount);
+                    $sheet->setCellValue('L' . $expenseRow, $expense->e_return_status ? 'Returned' : 'Active');
+
+                    $sheet->getStyle('J' . $expenseRow . ':L' . $expenseRow)->applyFromArray([
+                        'borders' => [
+                            'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                        ],
+                    ]);
+                    $sheet->getStyle('K' . $expenseRow)->getNumberFormat()->setFormatCode('#,##0.00');
+
+                    $expenseRow++;
+                }
+
+                // User expense subtotals
+                $userTotalExpenses = $userExps->sum('e_amount');
+                $userTotalReturns = $userExps->sum('e_return_amount');
+                $userNetExpenses = $userTotalExpenses - $userTotalReturns;
+
+                $sheet->mergeCells("J{$expenseRow}:K{$expenseRow}");
+                $sheet->setCellValue("J{$expenseRow}", "Total Expenses:");
+                $sheet->setCellValue("L{$expenseRow}", $userTotalExpenses);
+                $expenseRow++;
+
+                $sheet->mergeCells("J{$expenseRow}:K{$expenseRow}");
+                $sheet->setCellValue("J{$expenseRow}", "Total Returns:");
+                $sheet->setCellValue("L{$expenseRow}", $userTotalReturns);
+                $expenseRow++;
+
+                $sheet->mergeCells("J{$expenseRow}:K{$expenseRow}");
+                $sheet->setCellValue("J{$expenseRow}", "Net Expenses:");
+                $sheet->setCellValue("L{$expenseRow}", $userNetExpenses);
+                $expenseRow++;
+
+                // Add spacing between users
+                $expenseRow++;
+            }
+
+            // Grand total expenses
+            $sheet->mergeCells("J{$expenseRow}:L{$expenseRow}");
+            $sheet->setCellValue("J{$expenseRow}", "GRAND TOTAL EXPENSES");
+            $sheet->getStyle("J{$expenseRow}:L{$expenseRow}")->applyFromArray([
+                'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                'fill' => [
+                    'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
+                    'startColor' => ['rgb' => '4472C4'],
+                ],
+            ]);
+            $expenseRow++;
+
+            $sheet->mergeCells("J{$expenseRow}:K{$expenseRow}");
+            $sheet->setCellValue("J{$expenseRow}", "Total Expenses:");
+            $sheet->setCellValue("L{$expenseRow}", $totalExpenses);
+            $expenseRow++;
+
+            $sheet->mergeCells("J{$expenseRow}:K{$expenseRow}");
+            $sheet->setCellValue("J{$expenseRow}", "Total Returns:");
+            $sheet->setCellValue("L{$expenseRow}", $totalReturns);
+            $expenseRow++;
+
+            $sheet->mergeCells("J{$expenseRow}:K{$expenseRow}");
+            $sheet->setCellValue("J{$expenseRow}", "Net Expenses:");
+            $sheet->setCellValue("L{$expenseRow}", $netExpenses);
+
+            // Style the grand total rows
+            $sheet->getStyle("J{$expenseRow}:L{$expenseRow}")->applyFromArray([
+                'font' => ['bold' => true],
+                'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_RIGHT],
+                'borders' => [
+                    'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                ],
+            ]);
+
+            // Add column widths for expense section
+            $sheet->getColumnDimension('J')->setWidth(20);
+            $sheet->getColumnDimension('K')->setWidth(15);
+            $sheet->getColumnDimension('L')->setWidth(15);
 
             // Add Generated By section
             $currentUser = Auth::user();
@@ -440,12 +700,11 @@ class GenerateReportController extends Controller
             if ($startDate->isSameDay($endDate)) {
                 $dateForFilename = $startDate->format('Y-m-d');
             } else {
-                $dateForFilename = $startDate->format('Y-m-d') . '_to_' .
-                    $endDate->format('Y-m-d');
+                $dateForFilename = $startDate->format('Y-m-d') . '_to_' . $endDate->format('Y-m-d');
             }
             $timestamp = Carbon::now()->format('H-i-s');
 
-            $filename = "daily_sales_report_{$generatorName}_{$dateForFilename}_{$timestamp}.xlsx";
+            $filename = "daily_sales_report_all_users_{$dateForFilename}_{$timestamp}.xlsx";
 
             // Buffer the output
             ob_start();
@@ -460,10 +719,19 @@ class GenerateReportController extends Controller
                 ->header('Cache-Control', 'max-age=0');
 
         } catch (\Exception $e) {
-            \Log::error('Export error: ' . $e->getMessage(), [
+            \Log::error('Export error details:', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString()
             ]);
+
+            // Return more detailed error message in development
+            if (config('app.debug')) {
+                return redirect()->back()->with('error', 'Error: ' . $e->getMessage());
+            }
             return redirect()->back()->with('error', 'Failed to generate report. Please try again.');
         }
+
     }
 }
