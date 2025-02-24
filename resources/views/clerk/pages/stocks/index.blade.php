@@ -109,6 +109,28 @@
             const confirmSaveButton = document.getElementById('confirm-save');
             let cartItemsToSave = [];
 
+            // Function to format number to 2 decimal places
+            function formatDecimal(value) {
+                return parseFloat(value || 0).toFixed(2);
+            }
+
+            // Function to handle input formatting
+            function handleInputFormat(input) {
+                input.addEventListener('blur', function() {
+                    this.value = formatDecimal(this.value);
+                });
+
+                // Prevent more than 2 decimal places while typing
+                input.addEventListener('input', function() {
+                    if (this.value.includes('.')) {
+                        const parts = this.value.split('.');
+                        if (parts[1] && parts[1].length > 2) {
+                            this.value = parseFloat(this.value).toFixed(2);
+                        }
+                    }
+                });
+            }
+
             document.addEventListener('click', function(event) {
                 if (event.target.classList.contains('add-to-cart')) {
                     const productData = JSON.parse(event.target.getAttribute('data-product'));
@@ -129,19 +151,23 @@
                         newRow.innerHTML = `
                     <td>${productData.name}</td>
                     <td>
-                        <input type="number" class="form-control kilos-input" value="${productData.kilos}"
+                        <input type="number" step="0.01" class="form-control kilos-input" value="${formatDecimal(productData.kilos)}"
                             style="width: 80px; text-align: center;">
                     </td>
                     <td>
-                        <input type="number" class="form-control head-input" value="0"
+                        <input type="number" step="0.01" class="form-control head-input" value="0.00"
                             style="width: 80px; text-align: center;">
                     </td>
                     <td>
-                        <input type="number" class="form-control price-input" value="0"
+                        <input type="number" step="0.01" class="form-control price-input" value="0.00"
                             style="width: 100px; text-align: center;">
                     </td>
                 `;
                         cartTableBody.appendChild(newRow);
+
+                        // Add formatting handlers to new inputs
+                        const inputs = newRow.querySelectorAll('input[type="number"]');
+                        inputs.forEach(handleInputFormat);
 
                         event.target.disabled = true;
                         event.target.classList.add('disabled-btn');
@@ -191,7 +217,7 @@
                     cartItemsToSave.push({
                         product_id: productId,
                         kilos: parseFloat(kilos),
-                        head: parseInt(head || 0),
+                        head: parseFloat(head || 0),
                         price: parseFloat(price)
                     });
                 });

@@ -10,6 +10,8 @@ use App\Models\ProductModel;
 use App\Models\StockModel;
 use Illuminate\Support\Facades\Auth;
 use App\Models\CustomerModel;
+use App\Models\AdvancePaymentHistoryModel;
+
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Exception;
@@ -261,7 +263,7 @@ class CashierController extends Controller
 
                 case 'advance_payment':
                     // Verify advance payment amount
-                    $advancePaymentUsed = $validated['advance_payment_used'] ?? 0;
+                    $advancePaymentUsed = $validated['advance_payment_used'];
                     if ($advancePaymentUsed > $customer->advance_payment) {
                         throw new \Exception('Insufficient advance payment balance');
                     }
@@ -269,16 +271,32 @@ class CashierController extends Controller
                     // Update customer's advance payment balance
                     $customer->advance_payment -= $advancePaymentUsed;
 
-                    // If there's remaining amount after advance payment
+                    // Calculate remaining amount after advance payment
                     $remainingAmount = $totalAmount - $advancePaymentUsed;
+
                     if ($remainingAmount > 0) {
-                        $creditCharge = $remainingAmount;
+                        if ($amountPaid > 0) {
+                            // Scenario 1: Pay remaining with cash
+                            // Keep advancePaymentUsed as is - it will be stored in used_advance_payment
+                            $creditCharge = 0;
+                            // amountPaid is already set from the request
+                            $changeAmount = max(0, $amountPaid - $remainingAmount);
+                        } else {
+                            // Scenario 2: Add to customer balance
+                            $creditCharge = $remainingAmount;
+                            $amountPaid = 0;
+                            $changeAmount = 0;
+                        }
+                    } else {
+                        // Advance payment covers entire amount
+                        $creditCharge = 0;
+                        $amountPaid = 0;
+                        $changeAmount = 0;
                     }
 
-                    $amountPaid = $advancePaymentUsed;
-                    $changeAmount = 0;
+                    // Make sure to save the customer changes
+                    $customer->save();
                     break;
-
                 default:
                     throw new \Exception('Invalid payment type');
             }
@@ -308,7 +326,10 @@ class CashierController extends Controller
                 'credit_charge' => $creditCharge,
                 'receipt_id' => $validated['receipt_id'],
                 'reference_number' => $validated['reference_number'] ?? null,
-                'advance_payment_used' => $validated['advance_payment_used'] ?? null,
+
+                'used_advance_payment' => $validated['payment_type'] === 'advance_payment'
+                    ? ($validated['advance_payment_used'] ?? 0)
+                    : null,
                 'status' => $validated['service_type'] === 'deliver' ? 'Not Assigned' : null,
                 'date' => now()->setTimezone('Asia/Manila'),
                 'created_at' => now()->setTimezone('Asia/Manila'),
@@ -468,6 +489,7 @@ class CashierController extends Controller
             $validated = $request->validate([
                 'customer_id' => 'required|exists:tbl_customers,CustomerID',
                 'amount' => 'required|numeric|min:0',
+                'notes' => 'nullable|string'
             ]);
 
             DB::beginTransaction();
@@ -477,21 +499,58 @@ class CashierController extends Controller
                 throw new \Exception('Customer not found');
             }
 
-            // Update customer with advance payment and user_id
+            // Generate a unique collection ID
+            $collection_id = 'COL-' . strtoupper(uniqid());
+
+            $previousBalance = $customer->advance_payment;
             $customer->advance_payment += $validated['amount'];
-            $customer->user_id = Auth::id();  // Add this to track who processed the payment
+            $customer->user_id = Auth::id();
             $customer->save();
+
+            // Record the advance payment history
+            AdvancePaymentHistoryModel::create([
+                'customer_id' => $customer->CustomerID,
+                'user_id' => Auth::id(),
+                'amount' => $validated['amount'],
+                'type' => 'deposit',
+                'previous_balance' => $previousBalance,
+                'new_balance' => $customer->advance_payment,
+                'collection_id' => $collection_id, // Using the new collection_id
+                'notes' => $validated['notes'] ?? 'Advance payment deposit'
+            ]);
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
                 'message' => 'Advance payment recorded successfully',
-                'new_balance' => $customer->advance_payment
+                'new_balance' => $customer->advance_payment,
+                'collection_id' => $collection_id // Include collection_id in response
             ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    // Add a new method to get advance payment history
+    public function getAdvancePaymentHistory($customerId)
+    {
+        try {
+            $history = AdvancePaymentHistoryModel::with(['user'])
+                ->where('customer_id', $customerId)
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'history' => $history
+            ]);
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
                 'message' => $e->getMessage()

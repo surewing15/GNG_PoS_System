@@ -11,7 +11,8 @@
                         <label class="form-label">Customer</label>
                         <div class="input-group">
                             <input type="text" id="advance-customer-search" class="form-control"
-                                placeholder="Search customer">
+                                placeholder="Search customer" autocomplete="off">
+
                             <button class="btn btn-outline-primary btn-dim" data-bs-toggle="modal"
                                 data-bs-target="#customerModal">Add New</button>
                         </div>
@@ -38,16 +39,88 @@
                                 required>
                         </div>
                     </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Notes (Optional)</label>
+                        <textarea id="advance-payment-notes" class="form-control" rows="2"
+                            placeholder="Add any notes about this advance payment"></textarea>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="submit-advance-payment">Submit Payment</button>
+
             </div>
         </div>
     </div>
 </div>
 <script>
+    document.getElementById("advancePaymentModal").addEventListener("keydown", function(event) {
+        if (event.key === "Enter" && event.target.tagName !== "TEXTAREA" && event.target.id !==
+            "advance-customer-search") {
+            event.preventDefault();
+            document.getElementById("submit-advance-payment").click();
+        }
+    });
+
+    document.getElementById('advance-customer-search').addEventListener('keydown', function(e) {
+        const customerResults = document.getElementById('advance-customer-results');
+        const items = customerResults.querySelectorAll('.customer-item');
+        let currentIndex = Array.from(items).findIndex(item => item.classList.contains('selected'));
+
+        switch (e.key) {
+            case 'ArrowDown':
+                e.preventDefault();
+                navigateResults(items, currentIndex, 1);
+                break;
+
+            case 'ArrowUp':
+                e.preventDefault();
+                navigateResults(items, currentIndex, -1);
+                break;
+
+            case 'Enter':
+                e.preventDefault();
+                e.stopPropagation(); // Prevents triggering form submission
+                const selectedItem = customerResults.querySelector('.customer-item.selected');
+                if (selectedItem) {
+                    selectAdvanceCustomer(selectedItem);
+                }
+                break;
+
+            case 'Escape':
+                customerResults.style.display = 'none';
+                break;
+        }
+    });
+
+    function navigateResults(items, currentIndex, direction) {
+        if (items.length === 0) return;
+
+        items.forEach(item => item.classList.remove('selected'));
+
+        let newIndex;
+        if (currentIndex === -1) {
+            newIndex = direction > 0 ? 0 : items.length - 1;
+        } else {
+            newIndex = (currentIndex + direction + items.length) % items.length;
+        }
+
+        items[newIndex].classList.add('selected');
+        items[newIndex].scrollIntoView({
+            block: 'nearest'
+        });
+    }
+
+    document.getElementById('advance-amount').addEventListener('blur', function() {
+        let value = parseFloat(this.value);
+        if (!isNaN(value)) {
+            this.value = value.toFixed(2);
+        }
+    });
+
+
     document.addEventListener('DOMContentLoaded', function() {
         const advanceCustomerSearch = document.getElementById('advance-customer-search');
         const advanceCustomerResults = document.getElementById('advance-customer-results');

@@ -567,13 +567,11 @@
             const availableAdvance = parseFloat(document.getElementById('availableAdvance').textContent
                 .replace(/[₱,\s]/g, ''));
             const remainingAmount = grandTotal - availableAdvance;
-            const paymentTypeSelect = document.getElementById('paymentType');
 
             if (type === 'cash') {
                 // Show cash payment input
                 const {
-                    value: cashAmount,
-                    isConfirmed
+                    value: cashAmount
                 } = await Swal.fire({
                     title: 'Enter Cash Amount',
                     input: 'number',
@@ -587,10 +585,7 @@
                     }
                 });
 
-                if (isConfirmed && cashAmount) {
-                    // IMPORTANT: Set payment type to advance/cash
-                    paymentTypeSelect.value = 'advance/cash';
-
+                if (cashAmount) {
                     // Update payment amounts
                     const totalPaid = availableAdvance + parseFloat(cashAmount);
                     document.getElementById('amount-paid').value = totalPaid.toFixed(2);
@@ -598,13 +593,12 @@
                     document.getElementById('change-amount').value = change.toFixed(2);
 
                     // Update warning message
-                    document.getElementById('insufficientAdvanceWarning').innerHTML = `
+                    insufficientAdvanceWarning.innerHTML = `
                 <div class="alert alert-success">
                     <p>Payment completed with:</p>
                     <p>Advance Payment: ₱${availableAdvance.toFixed(2)}</p>
                     <p>Cash Payment: ₱${cashAmount}</p>
                     <p>Change: ₱${change.toFixed(2)}</p>
-                    <p class="text-info">Payment Type: Advance + Cash</p>
                 </div>`;
                 }
             } else if (type === 'credit') {
@@ -625,15 +619,12 @@
                 });
 
                 if (isConfirmed) {
-                    // Keep payment type as advance_payment for full credit
-                    paymentTypeSelect.value = 'advance_payment';
-
-                    // Update payment display
+                    // Update payment display - Set to 0 instead of availableAdvance
                     document.getElementById('amount-paid').value = '0.00';
                     document.getElementById('change-amount').value = '0.00';
 
-                    // Update warning message
-                    document.getElementById('insufficientAdvanceWarning').innerHTML = `
+                    // Update warning message to reflect the credit arrangement
+                    insufficientAdvanceWarning.innerHTML = `
                 <div class="alert alert-info">
                     <p>Payment split:</p>
                     <p>Advance Payment Used: ₱${availableAdvance.toFixed(2)}</p>
@@ -695,8 +686,8 @@
                 html: `
             <div class="text-left">
                 <p>Total Amount: ₱${totalAmount.toFixed(2)}</p>
-                <p>Advance Payment Used: ₱${availableAdvance.toFixed(2)}</p>
-                <p>Remaining Amount: ₱${remainingAmount.toFixed(2)}</p>
+                <p>Advance Payment Available: ₱${availableAdvance.toFixed(2)}</p>
+                <p class="font-weight-bold">Remaining Amount: ₱${remainingAmount.toFixed(2)}</p>
             </div>
         `,
                 input: 'radio',
@@ -705,51 +696,56 @@
                     'credit': 'Add to customer balance'
                 },
                 inputValidator: (value) => {
-                    if (!value) {
-                        return 'Please select an option!';
-                    }
+                    if (!value) return 'Please choose an option!';
                 },
                 showCancelButton: true,
                 confirmButtonText: 'Continue',
-                cancelButtonText: 'Cancel',
-                customClass: {
-                    container: 'insufficient-advance-modal'
-                }
+                cancelButtonText: 'Cancel'
             });
 
             if (!isConfirmed) return null;
 
-            if (choice === 'cash') {
+            if (choice === 'credit') {
+                // For credit option:
+                // - used_advance_payment stores the advance payment used
+                // - credit_charge stores the remaining amount
+                // - amount_paid will be 0 since no additional cash payment
+                return {
+                    type: 'credit',
+                    usedAdvancePayment: availableAdvance,
+                    amountPaid: 0, // No cash payment
+                    creditCharge: remainingAmount,
+                    changeAmount: 0
+                };
+            } else {
+                // For cash option, prompt for cash amount
                 const {
                     value: cashAmount,
                     isConfirmed: cashConfirmed
                 } = await Swal.fire({
                     title: 'Enter Cash Amount',
                     input: 'number',
+                    inputLabel: `Amount Required: ₱${remainingAmount.toFixed(2)}`,
                     inputValue: remainingAmount.toFixed(2),
-                    inputAttributes: {
-                        step: '0.01',
-                        min: remainingAmount.toFixed(2)
-                    },
                     showCancelButton: true,
-                    confirmButtonText: 'OK',
-                    cancelButtonText: 'Cancel'
+                    inputValidator: (value) => {
+                        if (!value || parseFloat(value) < remainingAmount) {
+                            return 'Please enter sufficient amount!';
+                        }
+                    }
                 });
 
                 if (!cashConfirmed) return null;
 
+                const parsedCashAmount = parseFloat(cashAmount);
+                const change = parsedCashAmount - remainingAmount;
+
                 return {
                     type: 'cash',
-                    advanceUsed: availableAdvance,
-                    cashAmount: parseFloat(cashAmount),
-                    creditAmount: 0
-                };
-            } else {
-                return {
-                    type: 'credit',
-                    advanceUsed: availableAdvance,
-                    cashAmount: 0,
-                    creditAmount: remainingAmount
+                    usedAdvancePayment: availableAdvance,
+                    amountPaid: parsedCashAmount, // Store remaining cash amount here
+                    creditCharge: 0,
+                    changeAmount: change
                 };
             }
         };
@@ -857,11 +853,11 @@
                         } = await Swal.fire({
                             title: 'Insufficient Advance Payment',
                             html: `
-                    <div class="text-left">
-                        <p>Total Amount: ₱${grandTotal.toFixed(2)}</p>
-                        <p>Advance Payment Used: ₱${advancePaymentUsed.toFixed(2)}</p>
-                        <p class="font-weight-bold">Remaining Amount: ₱${remainingAmount.toFixed(2)}</p>
-                    </div>`,
+                <div class="text-left">
+                    <p>Total Amount: ₱${grandTotal.toFixed(2)}</p>
+                    <p>Advance Payment Used: ₱${advancePaymentUsed.toFixed(2)}</p>
+                    <p class="font-weight-bold">Remaining Amount: ₱${remainingAmount.toFixed(2)}</p>
+                </div>`,
                             input: 'radio',
                             inputOptions: {
                                 'cash': 'Pay remaining with cash',
@@ -912,19 +908,21 @@
                                 change_amount: parseFloat(cashAmount) - remainingAmount
                             };
                         } else {
+                            // Add to customer balance option
                             transactionData = {
                                 ...transactionData,
-                                advance_payment_used: advancePaymentUsed,
-                                amount_paid: advancePaymentUsed,
-                                credit_charge: remainingAmount,
+                                advance_payment_used: advancePaymentUsed, // Store advance payment used
+                                amount_paid: 0, // No cash payment
+                                credit_charge: remainingAmount, // Store remaining as credit
                                 change_amount: 0
                             };
                         }
                     } else {
+                        // Advance payment covers entire amount
                         transactionData = {
                             ...transactionData,
                             advance_payment_used: advancePaymentUsed,
-                            amount_paid: advancePaymentUsed,
+                            amount_paid: 0,
                             credit_charge: 0,
                             change_amount: 0
                         };

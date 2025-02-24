@@ -68,6 +68,7 @@ class CreportController extends Controller
         ));
     }
 
+    // cashier report
     public function export(Request $request)
     {
         try {
@@ -102,8 +103,10 @@ class CreportController extends Controller
                 'transaction.customer',
                 'product'
             ])
-                ->where('user_id', $userId)
-                ->whereBetween('created_at', [$startDate, $endDate]);
+                ->whereHas('transaction', function ($query) use ($startDate, $endDate, $userId) {
+                    $query->whereBetween('created_at', [$startDate, $endDate])
+                        ->where('user_id', $userId);
+                });
 
             if ($paymentType) {
                 $query->whereHas('transaction', function ($q) use ($paymentType) {
@@ -123,6 +126,7 @@ class CreportController extends Controller
 
             $balancePayments = DB::table('tbl_payment')
                 ->join('tbl_customers', 'tbl_payment.customer_id', '=', 'tbl_customers.CustomerID')
+                ->where('tbl_payment.user_id', $userId)  // Add this line
                 ->whereBetween('payment_date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')])
                 ->select(
                     'tbl_customers.FirstName',
@@ -141,7 +145,8 @@ class CreportController extends Controller
             // Calculate totals by payment type
             $totalCashSales = $nonEggTransactions
                 ->filter(function ($transaction) {
-                    return in_array($transaction->transaction->payment_type, ['cash', 'advance_payment']);
+                    // Remove debit from cash sales calculation
+                    return in_array($transaction->transaction->payment_type, ['cash', 'advance_payment']); // Removed 'debit'
                 })
                 ->map(function ($transaction) {
                     if ($transaction->transaction->payment_type === 'advance_payment') {
@@ -166,6 +171,11 @@ class CreportController extends Controller
                     $transaction = $items->first()->transaction;
                     return $transaction->credit_charge ?? $items->sum('total');
                 });
+            $totalDebitCharge = $nonEggTransactions
+                ->filter(function ($transaction) {
+                    return $transaction->transaction->payment_type === 'debit';
+                })
+                ->sum('total');
             $totalCreditCharge = $nonEggTransactions->filter(function ($transaction) {
                 return $transaction->transaction->payment_type === 'credit' ||
                     ($transaction->transaction->credit_charge && $transaction->transaction->credit_charge > 0);
@@ -174,7 +184,6 @@ class CreportController extends Controller
                     $firstTransaction = $group->first()->transaction;
                     return $firstTransaction->credit_charge ?? $group->sum('total');
                 })->sum();
-
 
             // Calculate total sales after regrouping credit charges
             $totalSales = $totalCashSales + $totalBalancePayment + $totalOnlinePayment;
@@ -301,6 +310,12 @@ class CreportController extends Controller
                                 'color' => ['rgb' => '0000FF'],
                             ],
                         ]);
+                        break;
+
+                    case 'debit':
+                        // For debit payments, show amount in credit/charge column
+                        $amount = $transaction->total;
+                        $sheet->setCellValue('F' . $row, $amount); // Changed from 'C' to 'F' column
                         break;
 
                     case 'cash':
@@ -688,6 +703,13 @@ class CreportController extends Controller
                             ($transaction->transaction->reference_number ? ' (Ref: ' . $transaction->transaction->reference_number . ')' : ''));
                         break;
 
+                    case 'debit':
+                        // For debit payments, show amount in credit/charge column
+                        $amount = $transaction->total;
+                        $sheet->setCellValue('F' . $row, $amount);
+                        $totalEggCredit += $amount; // Add to egg credit total
+                        break;
+
                     case 'cash':
                         $cashAmount = $transaction->transaction->credit_charge > 0
                             ? $transaction->total - $transaction->transaction->credit_charge
@@ -808,10 +830,33 @@ class CreportController extends Controller
                 ->header('Content-Disposition', 'attachment; filename="' . $filename . '"')
                 ->header('Cache-Control', 'max-age=0');
 
-        } catch (\Exception $e) {
-            \Log::error('Export error: ' . $e->getMessage(), [
+        } catch (\PhpOffice\PhpSpreadsheet\Exception $e) {
+            Log::error('Spreadsheet error in export:', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
                 'trace' => $e->getTraceAsString()
             ]);
+            return redirect()->back()->with('error', 'Error in spreadsheet generation: ' . $e->getMessage());
+        } catch (\Illuminate\Database\QueryException $e) {
+            Log::error('Database error in export:', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return redirect()->back()->with('error', 'Database error occurred: ' . $e->getMessage());
+        } catch (\Exception $e) {
+            Log::error('General error in export:', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            if (config('app.debug')) {
+                return redirect()->back()->with('error', 'Error: ' . $e->getMessage());
+            }
             return redirect()->back()->with('error', 'Failed to generate report. Please try again.');
         }
     }
