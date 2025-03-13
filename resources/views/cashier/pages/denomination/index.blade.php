@@ -185,7 +185,7 @@
                 cashTotal += parseInt($('input[name="d025"]').val() || 0) * 0.25;
 
                 let onlineTotal = parseFloat($('input[name="online_amount"]').val() || 0);
-                let grandTotal = cashTotal + onlineTotal;
+                let grandTotal = cashTotal;
 
                 $('#cashTotal').text(cashTotal.toLocaleString('en-US', {
                     minimumFractionDigits: 2,

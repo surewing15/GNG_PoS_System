@@ -186,7 +186,7 @@ class CreportController extends Controller
                 })->sum();
 
             // Calculate total sales after regrouping credit charges
-            $totalSales = $totalCashSales + $totalBalancePayment + $totalOnlinePayment;
+            $totalSales = $totalCashSales + $totalBalancePayment + $totalOnlinePayment + $totalReturns;
             // Create new Spreadsheet
             $spreadsheet = new Spreadsheet();
             $sheet = $spreadsheet->getActiveSheet();
@@ -277,7 +277,6 @@ class CreportController extends Controller
                 ],
             ]);
 
-            // Data Rows
             // Data Rows
             $row = 6;
             $nonEggTransactions = $transactions->filter(function ($transaction) {
@@ -371,8 +370,8 @@ class CreportController extends Controller
                 $row++;
             }
 
-            // Add Summary Section
-            $row += 2;
+            // Add Summary Section - add a blank row for spacing
+            $row++;
             $sheet->mergeCells('A' . $row . ':B' . $row);
             $sheet->setCellValue('A' . $row, 'SUMMARY');
             $sheet->getStyle('A' . $row . ':B' . $row)->applyFromArray([
@@ -396,6 +395,7 @@ class CreportController extends Controller
             $summaryRows = [
                 ['label' => 'Total Cash Sales:', 'value' => $totalCashSales, 'isCredit' => false],
                 ['label' => 'Total Balance Payment:', 'value' => $totalBalancePayment, 'isCredit' => false],
+                ['label' => 'Total Returns:', 'value' => $totalReturns, 'isCredit' => false],
                 ['label' => 'Total Online Payment:', 'value' => $totalOnlinePayment, 'isCredit' => false, 'isOnline' => true],
                 ['label' => 'Total Credit/Charge:', 'value' => $totalCreditCharge, 'isCredit' => true],
             ];
@@ -438,8 +438,6 @@ class CreportController extends Controller
                 $row++;
             }
 
-
-
             // Total Sales (with yellow background)
             $sheet->setCellValue('A' . $row, 'Total Sales:');
             $sheet->setCellValue('B' . $row, $totalSales);
@@ -453,16 +451,13 @@ class CreportController extends Controller
             ]);
             $sheet->getStyle('B' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
 
+            // Save the main row position before working on the right columns
+            $mainRowPosition = $row;
 
-            $summaryStartRow = $row;
-
-            // Expenses Header
-            // Place this after the header styles section, before the sales transactions
-
-            // Expenses Section - Starting at column J
-            $sheet->mergeCells('J1:L1');
-            $sheet->setCellValue('J1', 'EXPENSES');
-            $sheet->getStyle('J1:L1')->applyFromArray([
+            // Expenses Section - Using hardcoded positions in columns J-L
+            $sheet->mergeCells('J17:L17');
+            $sheet->setCellValue('J17', 'EXPENSES');
+            $sheet->getStyle('J17:L17')->applyFromArray([
                 'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
                 'fill' => [
                     'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
@@ -473,9 +468,9 @@ class CreportController extends Controller
             // Expense Headers
             $expenseHeaders = ['Description', 'Amount', 'Status'];
             foreach ($expenseHeaders as $index => $header) {
-                $sheet->setCellValue(chr(74 + $index) . '2', $header); // 74 is ASCII for 'J'
+                $sheet->setCellValue(chr(74 + $index) . '18', $header); // 74 is ASCII for 'J'
             }
-            $sheet->getStyle('J2:L2')->applyFromArray([
+            $sheet->getStyle('J18:L18')->applyFromArray([
                 'font' => ['bold' => true],
                 'borders' => [
                     'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
@@ -483,7 +478,7 @@ class CreportController extends Controller
             ]);
 
             // Expense Data
-            $expenseRow = 3;
+            $expenseRow = 19;
             foreach ($expenses as $expense) {
                 $sheet->setCellValue('J' . $expenseRow, $expense->e_description);
                 $sheet->setCellValue('K' . $expenseRow, $expense->e_amount);
@@ -510,18 +505,6 @@ class CreportController extends Controller
             $sheet->setCellValue('L' . $totalRow, $totalExpenses);
             $sheet->getStyle('L' . $totalRow)->getNumberFormat()->setFormatCode('#,##0.00');
 
-            $totalRow++;
-            $sheet->mergeCells('J' . $totalRow . ':K' . $totalRow);
-            $sheet->setCellValue('J' . $totalRow, 'Total Returns:');
-            $sheet->setCellValue('L' . $totalRow, $totalReturns);
-            $sheet->getStyle('L' . $totalRow)->getNumberFormat()->setFormatCode('#,##0.00');
-
-            $totalRow++;
-            $sheet->mergeCells('J' . $totalRow . ':K' . $totalRow);
-            $sheet->setCellValue('J' . $totalRow, 'Net Expenses:');
-            $sheet->setCellValue('L' . $totalRow, $netExpenses);
-            $sheet->getStyle('L' . $totalRow)->getNumberFormat()->setFormatCode('#,##0.00');
-
             // Style the totals rows
             $sheet->getStyle('J' . ($totalRow - 2) . ':L' . $totalRow)->applyFromArray([
                 'font' => ['bold' => true],
@@ -536,12 +519,12 @@ class CreportController extends Controller
             $sheet->getColumnDimension('K')->setWidth(15);
             $sheet->getColumnDimension('L')->setWidth(15);
 
+            // Start Denomination Section at J1 with a separate row counter
+            $denomRow = 1;
 
-            // Add Denomination Section
-            $row += 2;
-            $sheet->mergeCells('A' . $row . ':C' . $row);
-            $sheet->setCellValue('A' . $row, 'DENOMINATION');
-            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+            $sheet->mergeCells('J' . $denomRow . ':L' . $denomRow);
+            $sheet->setCellValue('J' . $denomRow, 'DENOMINATION');
+            $sheet->getStyle('J' . $denomRow . ':L' . $denomRow)->applyFromArray([
                 'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
                 'fill' => [
                     'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
@@ -550,11 +533,11 @@ class CreportController extends Controller
             ]);
 
             // Denomination headers
-            $row++;
-            $sheet->setCellValue('A' . $row, 'CASH');
-            $sheet->setCellValue('B' . $row, 'PIECES');
-            $sheet->setCellValue('C' . $row, 'TOTAL');
-            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+            $denomRow++;
+            $sheet->setCellValue('J' . $denomRow, 'CASH');
+            $sheet->setCellValue('K' . $denomRow, 'PIECES');
+            $sheet->setCellValue('L' . $denomRow, 'TOTAL');
+            $sheet->getStyle('J' . $denomRow . ':L' . $denomRow)->applyFromArray([
                 'font' => ['bold' => true],
                 'fill' => [
                     'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
@@ -585,53 +568,82 @@ class CreportController extends Controller
             ];
 
             foreach ($denominations as $value => $field) {
-                $row++;
+                $denomRow++;
                 $pieces = $denomination ? $denomination->$field : 0;
                 $total = $value * $pieces;
 
                 // Add borders to denomination rows
-                $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+                $sheet->getStyle('J' . $denomRow . ':L' . $denomRow)->applyFromArray([
                     'borders' => [
                         'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
                     ],
                 ]);
 
-                $sheet->setCellValue('A' . $row, $value);
-                $sheet->setCellValue('B' . $row, $pieces);
-                $sheet->setCellValue('C' . $row, $total);
+                $sheet->setCellValue('J' . $denomRow, $value);
+                $sheet->setCellValue('K' . $denomRow, $pieces);
+                $sheet->setCellValue('L' . $denomRow, $total);
 
-                $sheet->getStyle('A' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
-                $sheet->getStyle('C' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('J' . $denomRow)->getNumberFormat()->setFormatCode('#,##0.00');
+                $sheet->getStyle('L' . $denomRow)->getNumberFormat()->setFormatCode('#,##0.00');
             }
 
             // Online amount
-            $row++;
-            $sheet->mergeCells('A' . $row . ':B' . $row);
-            $sheet->setCellValue('A' . $row, 'ONLINE:');
-            $sheet->setCellValue('C' . $row, $denomination ? $denomination->online_amount : 0);
-            $sheet->getStyle('C' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
-            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+            $denomRow++;
+            $sheet->mergeCells('J' . $denomRow . ':K' . $denomRow);
+            $sheet->setCellValue('J' . $denomRow, 'ONLINE:');
+            $sheet->setCellValue('L' . $denomRow, $denomination ? $denomination->online_amount : 0);
+            $sheet->getStyle('L' . $denomRow)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('J' . $denomRow . ':L' . $denomRow)->applyFromArray([
                 'borders' => [
                     'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
                 ],
             ]);
 
+
             // Total
-            $row++;
-            $sheet->mergeCells('A' . $row . ':B' . $row);
-            $sheet->setCellValue('A' . $row, 'TOTAL:');
-            $sheet->setCellValue('C' . $row, $denomination ? $denomination->total_amount : 0);
-            $sheet->getStyle('A' . $row . ':C' . $row)->applyFromArray([
+            $denomRow++;
+            $sheet->mergeCells('J' . $denomRow . ':K' . $denomRow);
+            $sheet->setCellValue('J' . $denomRow, 'TOTAL:');
+            $sheet->setCellValue('L' . $denomRow, $denomination ? $denomination->total_amount : 0);
+            $sheet->getStyle('J' . $denomRow . ':L' . $denomRow)->applyFromArray([
                 'font' => ['bold' => true],
                 'fill' => [
                     'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
                     'startColor' => ['rgb' => 'FFFF00'],
                 ],
             ]);
-            $sheet->getStyle('C' . $row)->getNumberFormat()->setFormatCode('#,##0.00');
+            $sheet->getStyle('L' . $denomRow)->getNumberFormat()->setFormatCode('#,##0.00');
+
+            $denomRow++;
+            $totalCashSales = $totalCashSales ?? 0; // Ensure variable exists
+            $denominationTotal = $denomination ? $denomination->total_amount : 0;
+            $cashShortage = $denominationTotal - $totalCashSales;
+
+            // Set the SHORT/EXCESS CASH row
+            $sheet->mergeCells('J' . $denomRow . ':K' . $denomRow);
+            $sheet->setCellValue('J' . $denomRow, 'SHORT/EXCESS CASH:');
+            $sheet->setCellValue('L' . $denomRow, $cashShortage);
+
+            // Apply formatting with conditional color (red for shortage, green for excess)
+            $textColor = $cashShortage < 0 ? 'FF0000' : '008000'; // Red for negative, Green for positive
+            $sheet->getStyle('J' . $denomRow . ':L' . $denomRow)->applyFromArray([
+                'font' => [
+                    'bold' => true,
+                    'color' => ['rgb' => $textColor],
+                ],
+                'borders' => [
+                    'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
+                ],
+            ]);
+            $sheet->getStyle('L' . $denomRow)->getNumberFormat()->setFormatCode('#,##0.00');
 
 
-            // Add Egg Products Section
+
+
+            // Continue with the main column from the saved position
+            $row = $mainRowPosition;
+
+            // Add Egg Products Section - add some spacing after summary
             $row += 2;
             $sheet->mergeCells('A' . $row . ':H' . $row);
             $sheet->setCellValue('A' . $row, 'EGG PRODUCTS TRANSACTIONS');

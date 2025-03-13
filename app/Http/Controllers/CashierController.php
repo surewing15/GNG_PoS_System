@@ -10,6 +10,7 @@ use App\Models\ProductModel;
 use App\Models\StockModel;
 use Illuminate\Support\Facades\Auth;
 use App\Models\CustomerModel;
+use App\Models\BalanceHistoryModel;
 use App\Models\AdvancePaymentHistoryModel;
 
 use Illuminate\Support\Facades\DB;
@@ -197,7 +198,7 @@ class CashierController extends Controller
             // Log the incoming request data
             \Log::info('Received transaction data:', $request->all());
 
-            // Validate the request
+            // Validate the request (keeping your existing validation)
             $baseValidation = [
                 'customer_id' => 'required|exists:tbl_customers,CustomerID',
                 'service_type' => 'required|string',
@@ -233,6 +234,10 @@ class CashierController extends Controller
             $amountPaid = $validated['amount_paid'];
             $changeAmount = $validated['change_amount'];
             $creditCharge = $validated['credit_charge'] ?? 0;
+
+            // Store original balance for history tracking
+            $previousBalance = $customer->Balance;
+            $previousAdvancePayment = $customer->advance_payment;
 
             // Handle different payment types
             switch ($validated['payment_type']) {
@@ -371,6 +376,38 @@ class CashierController extends Controller
                 }
 
                 $masterStock->save();
+            }
+
+
+            if ($customer->Balance != $previousBalance) {
+                $balanceChange = $customer->Balance - $previousBalance;
+                BalanceHistoryModel::create([
+                    'customer_id' => $customer->CustomerID,
+                    'receipt_id' => $transaction->receipt_id,
+                    'user_id' => Auth::id(),
+                    'previous_balance' => $previousBalance,
+                    'new_balance' => $customer->Balance,
+                    'amount' => $balanceChange,
+                    'type' => 'credit_charge',
+                    'description' => 'Balance change from transaction',
+                    'reference_id' => $transaction->receipt_id
+                ]);
+            }
+
+            // Record advance payment history if used
+            if ($validated['payment_type'] === 'advance_payment' && $customer->advance_payment != $previousAdvancePayment) {
+                $advancePaymentUsed = $previousAdvancePayment - $customer->advance_payment;
+                AdvancePaymentHistoryModel::create([
+                    'customer_id' => $customer->CustomerID,
+                    'user_id' => Auth::id(),
+                    'amount' => -$advancePaymentUsed,
+                    'type' => 'used',
+                    'previous_balance' => $previousAdvancePayment,
+                    'new_balance' => $customer->advance_payment,
+                    'collection_id' => $transaction->receipt_id,
+                    'notes' => 'Used for transaction #' . $transaction->id,
+                    'transaction_id' => $transaction->id
+                ]);
             }
 
             DB::commit();
@@ -637,6 +674,20 @@ class CashierController extends Controller
                 'message' => $e->getMessage()
             ], 500);
         }
+    }
+    private function recordBalanceChange($customerId, $transactionId, $previousBalance, $newBalance, $amount, $type, $description = null, $referenceId = null)
+    {
+        return BalanceHistoryModel::create([
+            'customer_id' => $customerId,
+            'transaction_id' => $transactionId,
+            'user_id' => Auth::id(),
+            'previous_balance' => $previousBalance,
+            'new_balance' => $newBalance,
+            'amount' => $amount,
+            'type' => $type,
+            'description' => $description,
+            'reference_id' => $referenceId
+        ]);
     }
 
 }

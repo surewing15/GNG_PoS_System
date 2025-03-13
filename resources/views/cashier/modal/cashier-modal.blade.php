@@ -23,7 +23,7 @@
                         <p class="mb-3"><strong>Receipt #:</strong> <span id="receiptID"></span></p>
                     </div>
 
-                    <!-- Service Type -->
+
                     <div class="row mb-3">
                         <div class="col-md-6">
                             <label class="form-label"><strong>Service Type:</strong></label>
