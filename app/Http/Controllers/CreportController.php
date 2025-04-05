@@ -186,6 +186,7 @@ class CreportController extends Controller
                 })->sum();
 
             // Calculate total sales after regrouping credit charges
+
             $totalSales = $totalCashSales + $totalBalancePayment + $totalOnlinePayment + $totalReturns;
             // Create new Spreadsheet
             $spreadsheet = new Spreadsheet();
@@ -265,7 +266,7 @@ class CreportController extends Controller
                 $sheet->setCellValue($cell, $value);
             }
 
-            // Apply header row styles
+
             $sheet->getStyle('A5:H5')->applyFromArray([
                 'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
                 'fill' => [
@@ -277,33 +278,46 @@ class CreportController extends Controller
                 ],
             ]);
 
-            // Data Rows
+
             $row = 6;
             $nonEggTransactions = $transactions->filter(function ($transaction) {
                 return !($transaction->product && $transaction->product->category === 'Egg');
             });
 
-            foreach ($nonEggTransactions as $transaction) {
+            $groupedTransactions = $nonEggTransactions->groupBy('transaction.receipt_id');
+
+            foreach ($groupedTransactions as $receiptId => $items) {
+                $firstItem = $items->first();
+
                 $sheet->getStyle('A' . $row . ':H' . $row)->applyFromArray([
                     'borders' => [
                         'allBorders' => ['borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN],
                     ],
                 ]);
-                // Set customer name and receipt number
-                $sheet->setCellValue('A' . $row, $transaction->transaction->customer->FirstName . ' ' .
-                    $transaction->transaction->customer->LastName);
-                $sheet->setCellValue('B' . $row, $transaction->transaction->receipt_id);
 
-                // Enhanced payment type handling
-                switch ($transaction->transaction->payment_type) {
+
+                $customer = $firstItem->transaction->customer;
+                $receiptId = $firstItem->transaction->receipt_id;
+                $paymentType = $firstItem->transaction->payment_type;
+                $createdAt = $firstItem->created_at;
+
+                $sheet->setCellValue('A' . $row, $customer->FirstName . ' ' . $customer->LastName);
+                $sheet->setCellValue('B' . $row, $receiptId);
+
+
+                $totalAmount = $items->sum('total');
+                $creditCharge = $firstItem->transaction->credit_charge ?? 0;
+                $amountPaid = $firstItem->transaction->amount_paid ?? $totalAmount;
+
+
+                switch ($paymentType) {
                     case 'online':
-                        // For online payments, show full amount regardless of amount_paid
-                        $amount = $transaction->total;
-                        $sheet->setCellValue('E' . $row, $amount);
-                        $sheet->setCellValue('G' . $row, 'Online Payment' .
-                            ($transaction->transaction->reference_number ? ' (Ref: ' . $transaction->transaction->reference_number . ')' : ''));
 
-                        // Apply blue color to online payment amounts
+                        $sheet->setCellValue('E' . $row, $totalAmount);
+                        $sheet->setCellValue('G' . $row, 'Online Payment' .
+                            ($firstItem->transaction->reference_number ? ' (Ref: ' . $firstItem->transaction->reference_number . ')' : ''));
+
+
                         $sheet->getStyle('E' . $row)->applyFromArray([
                             'font' => [
                                 'color' => ['rgb' => '0000FF'],
@@ -312,43 +326,62 @@ class CreportController extends Controller
                         break;
 
                     case 'debit':
-                        // For debit payments, show amount in credit/charge column
-                        $amount = $transaction->total;
-                        $sheet->setCellValue('F' . $row, $amount); // Changed from 'C' to 'F' column
+
+                        $sheet->setCellValue('F' . $row, $totalAmount);
                         break;
 
                     case 'cash':
-                        $cashAmount = $transaction->transaction->credit_charge > 0
-                            ? $transaction->total - $transaction->transaction->credit_charge
-                            : $transaction->total;
+
+                        $cashAmount = $amountPaid > 0 ? $amountPaid : $totalAmount - $creditCharge;
                         $sheet->setCellValue('C' . $row, $cashAmount);
-                        if ($transaction->transaction->credit_charge > 0) {
-                            $sheet->setCellValue('F' . $row, $transaction->transaction->credit_charge);
+
+                        if ($creditCharge > 0) {
+                            $sheet->setCellValue('F' . $row, $creditCharge);
                         }
                         break;
 
                     case 'advance_payment':
-                        $sheet->setCellValue('C' . $row, $transaction->transaction->amount_paid);
-                        if ($transaction->transaction->credit_charge > 0) {
-                            $sheet->setCellValue('F' . $row, $transaction->transaction->credit_charge);
+                        $sheet->setCellValue('C' . $row, $amountPaid);
+                        if ($creditCharge > 0) {
+                            $sheet->setCellValue('F' . $row, $creditCharge);
                         }
                         $sheet->setCellValue('G' . $row, 'Advance Payment');
                         break;
 
                     case 'credit':
-                        $sheet->setCellValue('F' . $row, $transaction->transaction->credit_charge ?? $transaction->total);
+                        $sheet->setCellValue('F' . $row, $creditCharge ?? $totalAmount);
                         $sheet->setCellValue('G' . $row, 'Credit Transaction');
                         break;
                 }
 
-                // Set the date
-                $sheet->setCellValue('H' . $row, Carbon::parse($transaction->created_at)->format('M d, Y'));
 
-                // Apply number format to amount columns
+                $sheet->setCellValue('H' . $row, Carbon::parse($createdAt)->format('M d, Y'));
+
+
                 $sheet->getStyle('C' . $row . ':F' . $row)->getNumberFormat()
                     ->setFormatCode('#,##0.00');
 
                 $row++;
+            }
+
+            $totalCashSales = 0;
+            foreach ($groupedTransactions as $receiptId => $items) {
+                $firstItem = $items->first();
+                $paymentType = $firstItem->transaction->payment_type;
+
+                if (in_array($paymentType, ['cash', 'advance_payment'])) {
+                    $totalAmount = $items->sum('total');
+                    $creditCharge = $firstItem->transaction->credit_charge ?? 0;
+                    $amountPaid = $firstItem->transaction->amount_paid ?? $totalAmount;
+
+                    $cashAmount = $paymentType === 'advance_payment' ? $amountPaid : ($amountPaid > 0 ? $amountPaid : $totalAmount - $creditCharge);
+                    $totalCashSales += $cashAmount;
+                }
+
+                $totalSales = $totalCashSales + $totalBalancePayment + $totalOnlinePayment + $totalReturns;
+
+
+
             }
 
             foreach ($balancePayments as $payment) {
@@ -370,7 +403,7 @@ class CreportController extends Controller
                 $row++;
             }
 
-            // Add Summary Section - add a blank row for spacing
+
             $row++;
             $sheet->mergeCells('A' . $row . ':B' . $row);
             $sheet->setCellValue('A' . $row, 'SUMMARY');

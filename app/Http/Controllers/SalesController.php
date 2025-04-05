@@ -22,7 +22,7 @@ class SalesController extends Controller
                         'sherwin aleronar',
                     'total_amount' => $transaction->subtotal ?? 0.00,
                     'created_at' => $transaction->created_at,
-                    'service_type' => $transaction->service_type // Add service_type to the data
+                    'service_type' => $transaction->service_type 
                 ];
             });
 
