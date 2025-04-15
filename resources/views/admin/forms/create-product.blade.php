@@ -8,15 +8,14 @@
             </div>
         </div>
     </div>
-    <!-- .nk-block-head -->
+
     <div class="nk-block">
         <form action="{{ route('product.store') }}" method="POST" enctype="multipart/form-data">
             @csrf
 
             <div class="row g-3">
 
-                <!-- Category Dropdown -->
-                <!-- Category Dropdown -->
+
                 <div class="col-12">
                     <div class="form-group">
                         <label class="form-label" for="p_category">Category</label>
@@ -31,7 +30,7 @@
                     </div>
                 </div>
 
-                <!-- SKU Field -->
+
                 <div class="col-12">
                     <div class="form-group">
                         <label class="form-label" for="p_sku">SKU</label>
@@ -108,7 +107,7 @@
                     @enderror
                 </div>
 
-                <!-- Submit Button -->
+
                 <div class="col-12">
                     <button type="submit" class="btn btn-primary">
                         <em class="icon ni ni-plus"></em><span>Add New</span>

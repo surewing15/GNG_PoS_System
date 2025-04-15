@@ -8,15 +8,38 @@ use App\Models\ProductModel;
 use App\Models\MasterStockModel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+
 class stockController extends Controller
 {
     public function index()
     {
-
+        // Get all products
         $products = ProductModel::all();
 
+        // Fetch all possible enum values from the category column
+        $categories = $this->getEnumValues('tbl_product', 'category');
 
-        return view('clerk.pages.stocks.index', compact('products'));
+        return view('clerk.pages.stocks.index', compact('products', 'categories'));
+    }
+    private function getEnumValues($table, $column)
+    {
+        // Query to get the column type information
+        $columnType = DB::select("SHOW COLUMNS FROM {$table} WHERE Field = '{$column}'")[0]->Type;
+
+        // Parse the enum values from the type string
+        preg_match('/^enum\((.*)\)$/', $columnType, $matches);
+
+        $values = [];
+        if (isset($matches[1])) {
+            // Extract and clean up the enum values
+            $enumValues = explode(',', $matches[1]);
+            foreach ($enumValues as $value) {
+                // Remove quotes and add to array
+                $values[] = trim($value, "'\"");
+            }
+        }
+
+        return $values;
     }
 
 

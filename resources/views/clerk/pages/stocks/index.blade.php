@@ -11,14 +11,14 @@
                                 <label class="form-label" for="category">Filter by Category</label>
                                 <div class="input-group">
                                     <select class="form-select" name="category" id="category">
-                                        <option value="">Select</option>
-                                        <option value="">Whole Sale</option>
-                                        <option value="">By Product</option>
+                                        <option value="">All Products</option>
+                                        @foreach ($categories as $category)
+                                            <option value="{{ $category }}">{{ $category }}</option>
+                                        @endforeach
                                     </select>
                                 </div>
                             </div>
                         </div>
-
                     </div>
 
                     <!-- Product Search and Display -->
@@ -29,8 +29,10 @@
                                     placeholder="Search products...">
                             </div>
                         </div>
+                        <!-- Keep the original structure without adding extra container -->
                         @foreach ($products as $product)
-                            <div class="col-xxl-3 col-lg-4 col-sm-6">
+                            <div class="col-xxl-3 col-lg-4 col-sm-6 product-item"
+                                data-category="{{ $product->category }}">
                                 <div class="card card-bordered product-card">
                                     <div class="card-inner text-center">
                                         <ul class="product-tags">
@@ -45,8 +47,11 @@
                                 </div>
                             </div>
                         @endforeach
+                        <!-- Message container for when no products are found -->
+                        <div id="no-products-message" class="col-12 text-center mt-3" style="display: none;">
+                            <div class="alert alert-info">No products found matching your criteria.</div>
+                        </div>
                     </div>
-
                 </div>
             </div>
         </div>
@@ -107,6 +112,9 @@
             const resetCartButton = document.getElementById('reset-cart');
             const drModal = new bootstrap.Modal(document.getElementById('drModal'));
             const confirmSaveButton = document.getElementById('confirm-save');
+            const categorySelect = document.getElementById('category');
+            const productSearch = document.getElementById('product-search');
+            const noProductsMessage = document.getElementById('no-products-message');
             let cartItemsToSave = [];
 
             // Function to format number to 2 decimal places
@@ -129,6 +137,51 @@
                         }
                     }
                 });
+            }
+
+            // Filter products by category
+            categorySelect.addEventListener('change', function() {
+                const selectedCategory = this.value;
+                filterProducts(selectedCategory, productSearch.value);
+            });
+
+            // Search products
+            productSearch.addEventListener('input', function() {
+                const searchTerm = this.value.toLowerCase();
+                filterProducts(categorySelect.value, searchTerm);
+            });
+
+            // Function to filter products based on category and search term
+            function filterProducts(category, searchTerm = '') {
+                const productItems = document.querySelectorAll('.product-item');
+                let visibleCount = 0;
+
+                productItems.forEach(item => {
+                    const productCategory = item.getAttribute('data-category');
+                    const productName = item.querySelector('.product-title').textContent.toLowerCase();
+                    const productSku = item.querySelector('.product-tags li a').textContent.toLowerCase();
+
+                    // Check if product matches category filter
+                    const categoryMatch = category === '' || productCategory === category;
+
+                    // Check if product matches search term
+                    const searchMatch = productName.includes(searchTerm) || productSku.includes(searchTerm);
+
+                    // Show/hide product based on filters
+                    if (categoryMatch && (searchTerm === '' || searchMatch)) {
+                        item.style.display = '';
+                        visibleCount++;
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+
+                // Show/hide "no products" message
+                if (visibleCount === 0) {
+                    noProductsMessage.style.display = '';
+                } else {
+                    noProductsMessage.style.display = 'none';
+                }
             }
 
             document.addEventListener('click', function(event) {
@@ -279,6 +332,9 @@
                         });
                     });
             });
+
+            // Initialize filtering
+            filterProducts(categorySelect.value, productSearch.value);
         });
     </script>
 </x-app-layout>

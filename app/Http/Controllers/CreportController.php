@@ -96,6 +96,7 @@ class CreportController extends Controller
                         'created_at',
                         'total_amount',
                         'amount_paid',
+                        'change_amount',
                         'reference_number',
                         'user_id'
                     );
@@ -295,7 +296,6 @@ class CreportController extends Controller
                     ],
                 ]);
 
-
                 $customer = $firstItem->transaction->customer;
                 $receiptId = $firstItem->transaction->receipt_id;
                 $paymentType = $firstItem->transaction->payment_type;
@@ -304,20 +304,17 @@ class CreportController extends Controller
                 $sheet->setCellValue('A' . $row, $customer->FirstName . ' ' . $customer->LastName);
                 $sheet->setCellValue('B' . $row, $receiptId);
 
-
                 $totalAmount = $items->sum('total');
                 $creditCharge = $firstItem->transaction->credit_charge ?? 0;
                 $amountPaid = $firstItem->transaction->amount_paid ?? $totalAmount;
-
+                // Make sure to get the change_amount
+                $changeAmount = $firstItem->transaction->change_amount ?? 0;
 
                 switch ($paymentType) {
                     case 'online':
-
                         $sheet->setCellValue('E' . $row, $totalAmount);
                         $sheet->setCellValue('G' . $row, 'Online Payment' .
                             ($firstItem->transaction->reference_number ? ' (Ref: ' . $firstItem->transaction->reference_number . ')' : ''));
-
-
                         $sheet->getStyle('E' . $row)->applyFromArray([
                             'font' => [
                                 'color' => ['rgb' => '0000FF'],
@@ -326,13 +323,15 @@ class CreportController extends Controller
                         break;
 
                     case 'debit':
-
                         $sheet->setCellValue('F' . $row, $totalAmount);
                         break;
 
                     case 'cash':
+                        // Subtract change_amount from the cash amount
+                        $cashAmount = $amountPaid > 0 ?
+                            ($amountPaid - $changeAmount) :
+                            ($totalAmount - $creditCharge - $changeAmount);
 
-                        $cashAmount = $amountPaid > 0 ? $amountPaid : $totalAmount - $creditCharge;
                         $sheet->setCellValue('C' . $row, $cashAmount);
 
                         if ($creditCharge > 0) {
@@ -341,7 +340,9 @@ class CreportController extends Controller
                         break;
 
                     case 'advance_payment':
-                        $sheet->setCellValue('C' . $row, $amountPaid);
+                        // Also subtract change_amount here
+                        $sheet->setCellValue('C' . $row, $amountPaid - $changeAmount);
+
                         if ($creditCharge > 0) {
                             $sheet->setCellValue('F' . $row, $creditCharge);
                         }
@@ -354,15 +355,13 @@ class CreportController extends Controller
                         break;
                 }
 
-
                 $sheet->setCellValue('H' . $row, Carbon::parse($createdAt)->format('M d, Y'));
-
-
                 $sheet->getStyle('C' . $row . ':F' . $row)->getNumberFormat()
                     ->setFormatCode('#,##0.00');
 
                 $row++;
             }
+
 
             $totalCashSales = 0;
             foreach ($groupedTransactions as $receiptId => $items) {
@@ -373,16 +372,20 @@ class CreportController extends Controller
                     $totalAmount = $items->sum('total');
                     $creditCharge = $firstItem->transaction->credit_charge ?? 0;
                     $amountPaid = $firstItem->transaction->amount_paid ?? $totalAmount;
+                    $changeAmount = $firstItem->transaction->change_amount ?? 0;
 
-                    $cashAmount = $paymentType === 'advance_payment' ? $amountPaid : ($amountPaid > 0 ? $amountPaid : $totalAmount - $creditCharge);
+                    if ($paymentType === 'advance_payment') {
+                        $cashAmount = $amountPaid - $changeAmount;
+                    } else {
+                        $cashAmount = $amountPaid > 0 ?
+                            ($amountPaid - $changeAmount) :
+                            ($totalAmount - $creditCharge - $changeAmount);
+                    }
+
                     $totalCashSales += $cashAmount;
                 }
-
-                $totalSales = $totalCashSales + $totalBalancePayment + $totalOnlinePayment + $totalReturns;
-
-
-
             }
+
 
             foreach ($balancePayments as $payment) {
                 $sheet->getStyle('A' . $row . ':H' . $row)->applyFromArray([
@@ -852,7 +855,7 @@ class CreportController extends Controller
                 'alignment' => ['horizontal' => \PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_LEFT],
             ]);
 
-            // Create filename with date range
+
             if ($startDate->isSameDay($endDate)) {
                 $dateForFilename = $startDate->format('Y-m-d');
             } else {
@@ -863,7 +866,6 @@ class CreportController extends Controller
 
             $filename = "daily_sales_report_{$generatorName}_{$dateForFilename}_{$timestamp}.xlsx";
 
-            // Buffer the output
             ob_start();
             $writer = new Xlsx($spreadsheet);
             $writer->save('php://output');

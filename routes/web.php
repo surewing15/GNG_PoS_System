@@ -162,7 +162,7 @@ Route::middleware([
 
 
 
-    // Route to display the stocks page
+
     Route::get('/stocks', [StockController::class, 'index'])->name('stocks.index');
     Route::get('/condemn/stocks', [CondemnController::class, 'index']);
     // Route to handle the form submission for stocks
