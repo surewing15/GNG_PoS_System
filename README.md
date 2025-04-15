@@ -119,10 +119,10 @@ The system provides separate login access for different user roles:
 To add screenshots of your login pages, save them in a `screenshots` folder and reference them like this:
 
 ```markdown
-![Admin ](screenshots/Admin.png)
-![Cashier](screenshots/Cashier.png)
-![Clerk ](screenshots/Clerk.png)
-![Login ](screenshots/Login.png)
+![Admin](screenshoots/Admin.png)
+![Cashier](screenshoots/Cashier.png)
+![Clerk](screenshoots/Clerk.png)
+![Login](screenshoots/Login.png)
 ```
 
 ## License
