@@ -114,15 +114,15 @@ The system provides separate login access for different user roles:
     -   Password: password
 -   Access to inventory management, stock adjustments, and basic reporting
 
-### Screenshots
+## Screenshots
 
 To add screenshots of your login pages, save them in a `screenshots` folder and reference them like this:
 
-```markdown
 ![Admin](screenshots/Admin.png)
 ![Cashier](screenshots/Cashier.png)
 ![Clerk](screenshots/Clerk.png)
 ![Login](screenshots/Login.png)
+
 ```
 
 ## License
@@ -132,3 +132,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Author
 
 SHERWIN VICTOR PABLO ALEONAR
+```
